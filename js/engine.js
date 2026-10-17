@@ -1536,7 +1536,7 @@ const Game = (() => {
   function periodChange() {
     const k = periodKey();
     if (S.lastPeriod && S.lastPeriod !== k && (S.lastPeriod === 'camp' || S.lastPeriod === 'finish')) campSummary(S.lastPeriod);
-    if (S.lastPeriod !== k && (k === 'camp' || k === 'finish') && (S.phase === 'KBO' || S.phase === 'MLB')) S.pending.push({ type: 'campPlan', data: {} });
+    if ((k === 'camp' || k === 'finish') && campNeedsPlan() && !S.pending.some((p) => p.type === 'campPlan')) S.pending.push({ type: 'campPlan', data: {} });
     if (S.lastPeriod && S.lastPeriod !== k && PERIOD_MSG[k]) {
       const P = period();
       S.pending.push({ type: 'msg', data: { title: P.name, icon: 'cal', text: PERIOD_MSG[k] } });
@@ -2173,7 +2173,7 @@ const Game = (() => {
     talkFinish.extra = extra;
     return g;
   }
-  function canContact(id) { return S.contactWeek[id] !== S.year * 100 + S.week; }
+  function canContact(id) { return !(S.rel[id] && S.rel[id].ended) && S.contactWeek[id] !== S.year * 100 + S.week; }
   function contact(id) {
     const h = HEROINES.find((x) => x.id === id);
     S.contactWeek[id] = S.year * 100 + S.week;
@@ -2195,7 +2195,45 @@ const Game = (() => {
     return { text: pick(R), gain: g, like };
   }
   function dateBlocked(id) {
-    return null;
+    return S.rel[id] && S.rel[id].ended ? '인연을 정리했어요' : null;
+  }
+  // ---------- 인연 끝내기 ----------
+  function endRelation(id, how) {
+    const h = HEROINES.find((x) => x.id === id);
+    const r = S.rel[id];
+    const st = relStage(r.aff, id);
+    const close = st >= 4;
+    const obsessed = S.obsess && S.obsess[id] > 0;
+    const out = [];
+    let narr = '';
+    if (mainLove() === id) out.push(...endMain('인연 정리'));
+    if (S.secret) delete S.secret[id];
+    if (obsessed) delete S.obsess[id];
+    const ment = (v) => { S.mental = clamp(S.mental - v, 0, 100); if (v) out.push(`멘탈 -${v}`); };
+    if (how === 'meet') { ment(close ? 10 : 3); narr = '직접 만나서 이야기했다. 서로 끝까지 예의를 지켰다.'; }
+    else if (how === 'text') {
+      ment(close ? 5 : 1); narr = '긴 문자를 보냈다. 읽음 표시가 뜨고 한참 뒤에 짧은 답장이 왔다.';
+      if (close && S.fame >= 40 && chance(0.35)) { S.fame = clamp(S.fame - 5, 0, 100); out.push('인기 -5'); narr += `\n며칠 뒤 SNS에 "문자로 이별 통보하는 사람"이라는 글이 올라왔다. 누구 얘기인지 다들 알았다.`; }
+    } else {
+      narr = '아무 말 없이 연락을 끊었다. 메시지 알림을 꺼 두었다.';
+      if (chance(close ? 0.5 : 0.15)) { S.fame = clamp(S.fame - 8, 0, 100); S.trust = clamp(S.trust - 3, 0, 100); out.push('인기 -8', '감독 신뢰 -3'); narr += `\n얼마 뒤 ${h.name}의 폭로 글이 커뮤니티에 올라왔다. "잠수 이별 당했습니다."`; }
+    }
+    if (obsessed && chance(0.6)) { S.fame = clamp(S.fame - 8, 0, 100); ment(10); narr += `\n그날 밤 ${h.name}이(가) 숙소 앞까지 찾아왔다. 기자들이 사진을 찍었다.`; out.push('인기 -8'); }
+    S.rel[id] = { aff: 0, met: r.met, ended: true, endWk: S.stats.weeks };
+    S.contactWeek[id] = null;
+    addLog(`${h.name}와의 인연을 정리했다.`);
+    save();
+    const fw = FAREWELL[id] ? FAREWELL[id][close ? 'c' : 'p'] : ['…알겠어.'];
+    const lines = how === 'meet' ? fw : how === 'text' ? [close ? '[메시지] 문자로 끝내는 거야? …그래, 알았어.' : '[메시지] 아… 네. 알겠어요. 잘 지내요.'] : [];
+    return { lines, text: narr + (out.length ? '\n\n' + out.join(' · ') : '') };
+  }
+  function reconnectWait(id) { const r = S.rel[id]; return r && r.ended ? Math.max(0, 48 - (S.stats.weeks - (r.endWk || 0))) : 0; }
+  function reconnect(id) {
+    if (reconnectWait(id) > 0) return null;
+    S.rel[id] = { aff: 12, met: S.rel[id].met };
+    addLog(`${HEROINES.find((x) => x.id === id).name}에게 오랜만에 연락했다.`);
+    save();
+    return ['…오랜만이네요. 연락 올 줄은 몰랐어요.', '그냥 안부 정도라면, 받아줄게요.'];
   }
   function doDate(id, placeId, bonus = 0) {
     const h = HEROINES.find((x) => x.id === id);
@@ -2707,7 +2745,7 @@ const Game = (() => {
     won, usd, grade, dateStr, ovr, batOVR, pitOVR, velScore, repScore, affiliation, myColors, teamInfo, roleLabel, batRole, pitRole,
     setRoster, rosterText, rosterInfo, estRanks, awardBadges, campInfo, setCamp, campActive, campNeedsPlan, requestState, requestTrade, requestPosting, negotiate, negoChance, clauseText, previewDemand: applyDemand, fallbackOffer, actions, trainingList, planWeek, finishWeek, keyPlayOptions, applyKeyResult, preSimFinal, playerForPlay, makeOppPitcher, makeOppBatter,
     resolve, standings, inRegular, isOffseason, league, seasonCfg, fmtAvg, fmtOps, fmtEra, fmtIp, war, seasonSummary, careerTotals,
-    contact, reply, obsessInfo, talkTopics, talkFinish, choiceInfo, loveInfo, cheating, mainLove, dateRiskOf: (pid) => dateRisk(DATE_PLACES.find((x) => x.id === pid)), canContact, doDate, gift, confess, proposeCheck, propose, dateBlocked, relStage, STAGE_NAME, heroLine,
+    contact, reply, endRelation, reconnect, reconnectWait, obsessInfo, talkTopics, talkFinish, choiceInfo, loveInfo, cheating, mainLove, dateRiskOf: (pid) => dateRisk(DATE_PLACES.find((x) => x.id === pid)), canContact, doDate, gift, confess, proposeCheck, propose, dateBlocked, relStage, STAGE_NAME, heroLine,
     FPOS, fpos, setFpos(k) { if (FPOS[k]) { S.fpos = k; addLog(`포지션을 ${FPOS[k].name}로 바꿨다.`); save(); } },
     buyHouse, sellHouse, buyCar, sellCar, lessonCost, derbyResult, simDerby, addLog, advance, PKEYS, fenceDist,
     weekSeries, period, timeline, PERIOD_INFO, amateur, amCal, chartLabel, LEVEL_LABEL, POS_LABEL, ATTR_NAME, PITCH_ORDER, HS_CAL, ROUNDS, isBatter, isPitcher, clamp, rnd, ri, pick, chance,

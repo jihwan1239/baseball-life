@@ -192,6 +192,8 @@ const UI = (() => {
     if (Game.amateur()) { const dy = (S.phase === 'HS' && S.grade === 3) || (S.phase === 'UNI' && (S.grade === 2 || S.grade === 4)); return dy && S.week < 34 ? '드래프트가 다가와요' : `${S.phase === 'UNI' ? '대학' : '고교'} 대회 일정`; }
     if (S.phase === 'INDY') return Game.inRegular() ? '독립리그 시즌 중' : '독립리그 비시즌';
     if (Game.inRegular()) return '정규시즌 진행 중';
+    const pk = Game.period().name;
+    if (/스프링캠프|마무리 훈련/.test(pk)) return `${pk} 중`;
     return Game.isOffseason() ? '비시즌' : '시즌 준비';
   }
   function nextEventText() {
@@ -210,6 +212,8 @@ const UI = (() => {
       return parts.join(' · ');
     }
     const c = Game.seasonCfg();
+    const ci = Game.campInfo();
+    if (ci.name) return Game.campActive() ? `${ci.camp.name} 집중 · ${ci.camp.packName} · 남은 ${ci.weeks}주` : '집중 훈련 계획을 먼저 세워주세요';
     if (w < c.reg[0]) return (w >= c.camp[0] && w <= c.camp[1]) ? '스프링캠프 중이라 훈련 효과가 30% 높아요' : `시즌 개막까지 ${c.reg[0] - w}주`;
     if (w <= c.reg[1]) {
       const ws = (S.level === 'KBO1' || S.level === 'MLB') ? Game.weekSeries() : [];
@@ -405,6 +409,7 @@ const UI = (() => {
             const hint = x.mlbOnly ? '메이저리그에서 만나요' : x.kboOnly ? 'KBO 구단에서 만나요' : x.injury ? '다쳤을 때 만나요' : x.fame ? '인기가 오르면 만나요' : '곧 만나요';
             return `<div class="hero locked"><div class="ph">?</div><div class="meta"><b>???</b><small>${hint}</small></div></div>`;
           }
+          if (r.ended) return `<button class="hero ended" data-hero="${x.id}"><div class="ph">${x.name.slice(-2)}${photo(x.id)}<span class="tag st">인연 끝</span></div><div class="meta"><b>${x.name}</b><small>${x.age}세 · ${x.job}</small></div></button>`;
           const st = Game.relStage(r.aff, x.id);
           return `<button class="hero" data-hero="${x.id}"><div class="ph">${x.name.slice(-2)}${photo(x.id)}<span class="tag ${S.obsess && S.obsess[x.id] ? 'obs' : st === 7 ? 'secret' : st >= 4 ? 'bad' : 'team'} st">${S.obsess && S.obsess[x.id] ? '집착' : r.aff >= 100 ? Game.STAGE_NAME[st] + ' ♥MAX' : Game.STAGE_NAME[st]}</span></div><div class="meta"><b>${x.name}</b><small>${x.age}세 · ${x.job}</small>${bar(r.aff, 100, 'pink')}</div></button>`;
         }).join('')}</div>
@@ -661,6 +666,7 @@ const UI = (() => {
         report({ title: '', week: agg, games: [], gains: [], lines: [], events: evs }, `${n}주 진행 · ${w + l ? `팀 ${w}승 ${l}패 · ` : ''}지금 ${Game.dateStr()}`);
         return;
       }
+      if (Game.campNeedsPlan()) { busy = false; render(); campPlanSheet(() => startAuto(max - n)); return; }
       let act = 'train', sub = null;
       if (Game.campActive()) act = S.fat > 60 ? 'campLight' : 'camp';
       else if (S.injury > 0 || S.fat > 62) act = 'rest';
@@ -823,6 +829,12 @@ const UI = (() => {
     const S = G();
     const h = HEROINES.find((x) => x.id === id);
     const r = S.rel[id];
+    if (r.ended) {
+      const wait = Game.reconnectWait(id);
+      sheet({ title: h.name, dismiss: true, body: `<div class="hd-ph ended-ph">${h.name.slice(-2)}${photo(h.id)}</div><p class="muted" style="margin-top:10px">인연을 정리한 사람이에요.</p><p class="hint">${wait ? `${wait}주 뒤에 다시 연락해 볼 수 있어요.` : '시간이 꽤 흘렀어요. 다시 연락해 볼 수 있어요.'}</p>`,
+        buttons: [{ label: '닫기', cls: 'sub' }].concat(wait ? [] : [{ label: '다시 연락해 보기', onClick: () => { const l = Game.reconnect(id); talk(h, l, '다시 아는 사이가 됐어요', render); } }]) });
+      return;
+    }
     const st = Game.relStage(r.aff, id);
     const blocked = Game.dateBlocked(id);
     const propose = Game.proposeCheck(id);
@@ -837,6 +849,7 @@ const UI = (() => {
         <button class="li" data-h="gift"><div class="ic">${IC.gift}</div><div class="tx"><b>선물</b><small>돈을 써서 호감 상승</small></div></button>
         ${canConfess ? `<button class="li" data-h="confess" ${r.aff >= 70 ? '' : 'disabled'}><div class="ic">${IC.star}</div><div class="tx"><b>고백하기</b><small>${r.aff >= 70 ? (sneak ? '성공하면 비밀 연인이 돼요' : '성공하면 연인이 돼요') : '호감 70부터 할 수 있어요'}</small></div></button>` : ''}
         ${S.partner === id && !S.engaged && !S.spouse ? `<button class="li" data-h="propose" ${propose ? 'disabled' : ''}><div class="ic">${IC.star}</div><div class="tx"><b>프러포즈</b><small>${propose || '반지와 신혼집 준비 완료'}</small></div></button>` : ''}
+        <button class="li end-li" data-h="end"><div class="ic">${IC.swap}</div><div class="tx"><b>인연 끝내기</b><small>${S.spouse === id ? '이혼 · 위자료로 재산 30%' : st >= 4 ? '이별 통보' : '더 이상 만나지 않기'}</small></div></button>
       </div>`;
     sheet({
       title: h.name, body, dismiss: true, buttons: [{ label: '닫기', cls: 'sub' }],
@@ -851,6 +864,7 @@ const UI = (() => {
           else if (a === 'date') datePicker(h);
           else if (a === 'gift') giftPicker(h);
           else if (a === 'confess') { const ok = Game.confess(id); const sec = ok && Game.relStage(G().rel[id].aff, id) === 7; talk(h, ok ? (sec ? ['…너 만나는 사람 있는 거 알아.', '그래도 좋아. 우리 둘만 아는 걸로 하자.'] : ['사실 나도 같은 마음이었어요.', '오늘부터 1일이에요.']) : ['미안해요, 아직은 잘 모르겠어요.', '조금만 더 시간을 줄래요?'], ok ? (sec ? '비밀 연인이 됐어요. 들키지 않게 조심하세요.' : '연인이 됐어요!') : '호감 -10', render); }
+          else if (a === 'end') endSheet(h);
           else if (a === 'propose') { const ok = Game.propose(id); talk(h, ok ? ['이거 반지야?', '응. 평생 옆에 있을게.'] : ['조금만 생각할 시간을 줘.'], ok ? '프러포즈 성공! 6주 뒤에 결혼식이에요.' : '호감 -8', render); }
         };
       },
@@ -889,6 +903,22 @@ const UI = (() => {
     step();
   }
   function shuffle(a) { for (let k = a.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [a[k], a[j]] = [a[j], a[k]]; } return a; }
+  function endSheet(h) {
+    const S = G();
+    const r = S.rel[h.id];
+    const st = Game.relStage(r.aff, h.id);
+    const close = st >= 4;
+    const wife = S.spouse === h.id;
+    const obs = S.obsess && S.obsess[h.id] > 0;
+    const opt = (k, t, d) => `<button class="li" data-how="${k}"><div class="tx"><b>${t}</b><small>${d}</small></div></button>`;
+    sheet({
+      title: `${h.name}와의 인연 끝내기`, dismiss: true,
+      body: `<p>${wife ? '이혼하면 위자료로 재산의 30%를 잃고 인기와 멘탈이 크게 떨어져요.' : close ? '헤어지면 다시 만나기 어려워요.' : '더 이상 연락하지 않고 만나지 않아요.'} 1년이 지나면 다시 연락해 볼 수 있어요.</p>${obs ? '<p class="hint" style="color:var(--bad)">집착 중이라 순순히 받아들이지 않을 수도 있어요.</p>' : ''}
+        <div class="list">${opt('meet', '직접 만나서 정중하게', close ? '멘탈 -10 · 가장 깔끔한 마무리' : '멘탈 -3')}${opt('text', '문자로 통보', close ? '멘탈 -5 · 인기가 높으면 SNS 저격글이 올라올 수도' : '멘탈 -1')}${opt('ghost', '말없이 연락 끊기 (잠수)', close ? '멘탈 손실 없음 · 절반 확률로 폭로 글 (인기 -8)' : '가끔 뒷말이 나와요')}</div>`,
+      buttons: [{ label: '그만두기', cls: 'sub', onClick: () => heroDetail(h.id) }],
+      onRender: (b, closeS) => { b.onclick = (e) => { const x = e.target.closest('[data-how]'); if (!x) return; closeS(); const res = Game.endRelation(h.id, x.dataset.how); const fin = () => sheet({ title: '인연을 정리했어요', body: `<p class="pre">${esc(res.text)}</p>`, buttons: [{ label: '확인', onClick: render }] }); if (res.lines.length) talk(h, res.lines, '', fin); else fin(); }; },
+    });
+  }
   function talk(h, lines, extra, then) {
     sheet({ title: h.name, body: `<div class="hd-ph" style="aspect-ratio:1/1;max-height:30vh">${h.name.slice(-2)}${photo(h.id)}</div>${lines.map((l) => `<div class="bubble">${esc(l)}</div>`).join('')}${extra ? `<p style="color:var(--bad);font-weight:600">${extra}</p>` : ''}`, buttons: [{ label: '확인', onClick: then }] });
   }
@@ -934,7 +964,7 @@ const UI = (() => {
     try { cur = localStorage.getItem('baseballLife.theme') || 'system'; } catch (e) { /* */ }
     sheet({
       title: '설정', dismiss: true,
-      body: `<div class="field"><label>화면 테마</label><div class="seg" id="th">${[['system', '시스템'], ['light', '라이트'], ['dark', '다크']].map(([k, n]) => `<button data-v="${k}" class="${cur === k ? 'on' : ''}">${n}</button>`).join('')}</div></div><p class="hint">게임은 매주 자동 저장돼요.</p>`,
+      body: `<div class="field"><label>화면 테마</label><div class="seg" id="th">${[['system', '시스템'], ['light', '라이트'], ['dark', '다크']].map(([k, n]) => `<button data-v="${k}" class="${cur === k ? 'on' : ''}">${n}</button>`).join('')}</div></div><p class="hint">게임은 매주 자동 저장돼요.</p><p class="hint">버전 2026.10.18 · 캠프 집중 훈련, 인연 끝내기 포함</p>`,
       buttons: [
         { label: '실제 선수 명단', cls: 'sub', onClick: () => rosterSheet() },
         { label: '은퇴하기', cls: 'sub', onClick: () => sheet({ title: '정말 은퇴할까요?', body: '<p>커리어가 끝나고 엔딩으로 넘어가요.</p>', row: true, buttons: [{ label: '취소', cls: 'sub' }, { label: '은퇴', cls: 'danger', onClick: () => { Game.resolve({ type: 'forcedRetire', data: {} }); Game.save(); ending(); } }] }) },
