@@ -768,7 +768,7 @@ const UI = (() => {
           const a = x.dataset.h; close();
           if (a === 'call') {
             Game.contact(id);
-            chat(h, Game.talkTopics(id, 3), '연락', (gain) => { const g = Game.talkFinish(id, gain, 'call'); return `대화 끝 · 호감 ${g >= 0 ? '+' : ''}${g}`; }, () => heroDetail(id));
+            chat(h, Game.talkTopics(id, 3), '연락', (gain, fx) => { const g = Game.talkFinish(id, gain, 'call', fx); const ex = fx ? Object.entries(fx).map(([k, v]) => `${{ mental: '멘탈', fat: '피로', fame: '인기' }[k] || k} ${v > 0 ? '+' : ''}${v}`).join(' · ') : ''; return `대화 끝 · 호감 ${g >= 0 ? '+' : ''}${g}${ex ? ' · ' + ex : ''}`; }, () => heroDetail(id));
           }
           else if (a === 'date') datePicker(h);
           else if (a === 'gift') giftPicker(h);
@@ -782,6 +782,7 @@ const UI = (() => {
   function chat(h, topics, where, finish, then) {
     const log = [];
     let i = 0, gain = 0;
+    const fx = {};
     const night = /특급|호텔|해외/.test(where);
     const head = `<div class="chat-h"><div class="chat-av">${photo(h.id, night)}</div><div><b>${h.name}</b><small>${where}</small></div></div>`;
     const her = (t) => `<div class="cb her">${esc(t)}</div>`;
@@ -790,18 +791,20 @@ const UI = (() => {
     const scroll = (b) => { const l = $('.chat-log', b); if (l) l.scrollTop = l.scrollHeight; };
     const step = () => {
       const t = topics[i];
+      if (t.type) log.push(`<div class="cb-type">${esc(t.type)}</div>`);
       log.push(her(t.q));
       sheet({
         title: '', body: draw(), onRender: scroll,
         buttons: shuffle(t.a.slice()).map((o) => ({ label: esc(o[0]), cls: 'sub opt', onClick: () => {
           log.push(me(o[0])); log.push(her(o[1])); gain += o[2];
+          if (o[3]) Object.entries(o[3]).forEach(([k, v]) => (fx[k] = (fx[k] || 0) + v));
           i++;
           if (i < topics.length) step(); else end();
         } })),
       });
     };
     const end = () => {
-      const msg = finish(gain);
+      const msg = finish(gain, Object.keys(fx).length ? fx : null);
       sheet({ title: '', body: draw(`<div class="chat-end">${esc(msg)}</div>`), onRender: scroll, buttons: [{ label: '확인', onClick: then }] });
     };
     if (!topics.length) return then();

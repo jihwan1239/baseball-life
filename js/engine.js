@@ -1977,32 +1977,46 @@ const Game = (() => {
     return pick(h.talk[tier]);
   }
   function talkTier(id) { const st = relStage(S.rel[id].aff, id); return st >= 4 ? 4 : st >= 3 ? 3 : 1; }
+  function talkCond() {
+    if (isOffseason()) return 'off';
+    if (S.recent && S.recent.length >= 3) { const p = perfAvg(); if (p < -0.3) return 'slump'; if (p > 1.3) return 'win'; }
+    return null;
+  }
   function talkTopics(id, n, place) {
     const tier = talkTier(id);
+    const casual = tier >= 4;
+    if (place) {
+      const pt = (casual ? DATE_TALK : DATE_TALK_P)[place] || DATE_TALK[place];
+      return [pt, pick(DATE_END[casual ? 'c' : 'p'])].filter(Boolean).map((t) => ({ q: t.q, a: t.a }));
+    }
     S.flags.talkSeen = S.flags.talkSeen || {};
     const seen = S.flags.talkSeen[id] || [];
-    const all = (TALKS[id] || []).map((t, i) => Object.assign({ i }, t)).filter((t) => t.st <= tier);
-    const fresh = all.filter((t) => !seen.includes(t.i));
-    const pool = (fresh.length >= n ? fresh : all).slice();
-    if (place) {
-      const casual = tier >= 4;
-      const pt = (casual ? DATE_TALK : DATE_TALK_P)[place] || DATE_TALK[place];
-      return [pt, pick(DATE_END[casual ? 'c' : 'p'])].filter(Boolean);
-    }
-    // 연인 이상은 반말 대화만, 그 전은 존댓말 대화만
-    const pool2 = tier >= 4 ? all.filter((t) => t.st === 4) : pool;
-    const top = shuffle(pool2.filter((t) => t.st === tier));
-    const rest = shuffle(pool2.filter((t) => t.st !== tier));
-    const out = top.slice(0, Math.min(2, n)).concat(rest).concat(top.slice(2)).slice(0, n);
-    S.flags.talkSeen[id] = seen.concat(out.map((t) => t.i)).slice(-5);
-    return out.map((t) => ({ q: t.q, a: t.a }));
+    const all = (TALKS[id] || []).map((t, i) => Object.assign({ i }, t));
+    // 연인 이상은 반말(st 4)만, 그 전은 존댓말(st 1, 3)만
+    const fit = all.filter((t) => (casual ? t.st === 4 : t.st <= tier && t.st !== 4));
+    const cond = talkCond();
+    const out = [];
+    const ct = shuffle(fit.filter((t) => t.cond === cond && cond && !seen.includes(t.i)));
+    if (ct.length && chance(0.8)) out.push(ct[0]);
+    const base = fit.filter((t) => !t.cond && !out.includes(t));
+    let fresh = base.filter((t) => !seen.includes(t.i));
+    if (fresh.length < n) fresh = base;
+    const top = shuffle(fresh.filter((t) => t.st === tier));
+    const rest = shuffle(fresh.filter((t) => t.st !== tier));
+    // 캐릭터 전용 대화는 한 번에 하나만
+    let typed = false;
+    top.concat(rest).forEach((t) => { if (out.length >= n) return; if (t.type) { if (typed) return; typed = true; } out.push(t); });
+    S.flags.talkSeen[id] = seen.concat(out.map((t) => t.i)).slice(-12);
+    return out.map((t) => ({ q: t.q, a: t.a, type: t.type || null }));
   }
-  function talkFinish(id, gain, mode) {
+  function talkFinish(id, gain, mode, fx) {
+    const extra = fx ? applyFx(fx) : [];
     if (mode === 'date') return clamp(Math.round(gain * 0.5), -2, 5);
     const g = clamp(Math.round(gain * 0.7) + (S.partner === id || S.spouse === id ? 1 : 0), -3, 8);
     S.rel[id].aff = clamp(S.rel[id].aff + g, 0, 100);
     S.mental = clamp(S.mental + (gain >= 6 ? 4 : 2), 0, 100);
     save();
+    talkFinish.extra = extra;
     return g;
   }
   function canContact(id) { return S.contactWeek[id] !== S.year * 100 + S.week; }
