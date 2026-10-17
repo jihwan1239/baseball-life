@@ -12,6 +12,8 @@ const UI = (() => {
   const P = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
   const IC = {
     home: P('<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>'),
+    swap: P('<path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/>'),
+    plane: P('<path d="M2 16l20-7-20-7 4 7-4 7zM6 9h8"/>'),
     season: P('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'),
     player: P('<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>'),
     life: P('<path d="M12 21s-7.5-4.6-9.3-9.2C1.4 8.5 3.6 5 7 5c2 0 3.4 1.1 5 3 1.6-1.9 3-3 5-3 3.4 0 5.6 3.5 4.3 6.8C19.5 16.4 12 21 12 21z"/>'),
@@ -99,6 +101,28 @@ const UI = (() => {
     return `<div class="hdr"><div><h1>${title}</h1><div class="date">${Game.dateStr()} · ${esc(Game.affiliation())}</div></div><button class="icon-btn" data-a="settings" aria-label="설정">${IC.gear}</button></div>`;
   }
 
+  // ---------- 기간 표시 ----------
+  function pcol(c) { return c === 'team' ? 'var(--team)' : c; }
+  function periodCard() {
+    const S = G();
+    const P = Game.period();
+    const tl = Game.timeline();
+    const segs = tl.map((t) => `<i style="flex:${t.n};background:${pcol(t.color)}" title="${t.name}"></i>`).join('');
+    const pos = (S.week + 0.5) / 48 * 100;
+    const seen = {};
+    const labels = tl.filter((t) => !seen[t.name] && (seen[t.name] = 1)).map((t) => `<span class="${t.name === P.name || (P.name.startsWith(t.name)) ? 'on' : ''}"><i style="background:${pcol(t.color)}"></i>${t.name}</span>`).join('');
+    const cur = tl.find((t) => S.week >= t.from && S.week < t.from + t.n);
+    const nxt = cur && tl[tl.indexOf(cur) + 1];
+    const left = cur ? cur.from + cur.n - S.week : 0;
+    const nextTxt = nxt ? `${nxt.name}까지 ${left}주` : '';
+    return `<div class="card period">
+      <div class="pd-top"><span class="pd-pill" style="background:${pcol(P.color)}">${P.name}</span><small>${nextTxt}</small></div>
+      <p class="pd-desc">${P.desc}</p>
+      <div class="pd-bar">${segs}<b style="left:${pos}%"></b></div>
+      <div class="pd-lbl">${labels}</div>
+    </div>`;
+  }
+
   // ---------- 홈 ----------
   function seasonKpis(t) {
     const out = [['경기', Math.max(t.G, t.PG)]];
@@ -116,6 +140,7 @@ const UI = (() => {
     if (S.phase !== 'HS') acts.push({ id: 'date', name: '데이트', icon: 'love', sub: S.partner ? '연인과 시간 보내기' : '호감도 올리기' });
     const iconOf = { train: 'train', rest: 'rest', star: 'star', coin: 'coin', heart: 'fan', chart: 'video', cal: 'book' };
     return `${header('야구 인생')}
+      ${periodCard()}
       <div class="card">
         <div class="profile">
           <div class="avatar">${esc(S.name.slice(-2))}${photo('player')}</div>
@@ -137,7 +162,7 @@ const UI = (() => {
       </div>
       <div class="card">
         <div class="card-t"><h3>이번 주에 할 일</h3><small>고르면 한 주가 지나요</small></div>
-        <div class="tiles">${acts.map((a) => `<button class="tile ${a.disabled ? 'off' : ''}" data-act="${a.id}">${IC[iconOf[a.icon] || a.icon] || IC.star}<b>${a.name}</b><small>${a.disabled || a.sub}</small></button>`).join('')}</div>
+        <div class="tiles">${acts.map((a) => `<button class="tile ${a.disabled ? 'off' : ''}" data-act="${a.id}">${IC[iconOf[a.icon] || a.icon] || IC.star}<b>${a.name}</b><small>${a.disabled || (a.id === 'train' && Game.period().train > 1 ? `효과 ${Game.period().train}배 (${Game.period().name})` : a.sub)}</small></button>`).join('')}</div>
       </div>
       <div class="card">
         <div class="card-t"><h3>확인할 일</h3></div>
@@ -342,7 +367,16 @@ const UI = (() => {
       <div class="kv"><span>역할</span><b>${Game.amateur() ? (S.phase === 'UNI' ? '대학 선수' : '고교 선수') : Game.roleLabel()}</b></div>
       ${c ? `<div class="kv"><span>연봉</span><b>${c.kind === 'milb' && !c.arb ? (S.level === 'MLB' ? Game.usd(780000) + ' (최저)' : '마이너 계약') : Game.won(c.salary)}${c.years ? ` · ${c.years}년 남음` : ''}</b></div>` : ''}
       ${S.phase === 'KBO' ? `<div class="kv"><span>FA까지</span><b>1군 ${S.service} / 7시즌</b></div>` : ''}
-      ${S.phase === 'MLB' ? `<div class="kv"><span>FA까지</span><b>서비스 타임 ${S.mlbService} / 6년</b></div>` : ''}</div>`;
+      ${S.phase === 'MLB' ? `<div class="kv"><span>FA까지</span><b>서비스 타임 ${S.mlbService} / 6년</b></div>` : ''}
+      ${c && Game.clauseText(Object.assign({ lg: c.lg }, c, { optAmt: c.optAmt ? (c.lg === 'MLB' ? c.optAmt / USD : c.optAmt) : 0 })) ? `<div class="kv"><span>특약</span><b>${esc(Game.clauseText(Object.assign({ lg: c.lg }, c, { optAmt: c.optAmt ? (c.lg === 'MLB' ? c.optAmt / USD : c.optAmt) : 0 })))}</b></div>` : ''}</div>`;
+    if (S.phase === 'KBO' || S.phase === 'MLB') {
+      const rq = Game.requestState();
+      h += `<div class="card"><div class="card-t"><h3>구단에 요청</h3><small>감독 신뢰 ${Math.round(S.trust)}</small></div>
+        <div class="list">
+          <button class="li" data-rq="trade" ${rq.trade ? 'disabled' : ''}><div class="ic">${IC.swap}</div><div class="tx"><b>트레이드 요청</b><small>${rq.trade || '다른 팀에서 새 출발 · 감독 신뢰 크게 하락'}</small></div></button>
+          ${rq.postShow ? `<button class="li" data-rq="post" ${rq.post ? 'disabled' : ''}><div class="ic">${IC.plane}</div><div class="tx"><b>메이저리그 포스팅 요청</b><small>${rq.post || '구단 허락을 받으면 시즌 후 MLB 구단과 협상'}</small></div></button>` : ''}
+        </div></div>`;
+    }
     return h;
   }
 
@@ -352,7 +386,9 @@ const UI = (() => {
     let h = `${header('라이프')}<div class="seg"><button data-life="love" class="${view.life === 'love' ? 'on' : ''}">연애</button><button data-life="asset" class="${view.life === 'asset' ? 'on' : ''}">집 · 차</button></div>`;
     if (view.life === 'love') {
       if (S.phase === 'HS') return h + `<div class="card"><div class="empty">지금은 야구에 집중할 때예요.<br>프로에 입단해 성인이 되면 새로운 만남이 시작돼요.</div></div>`;
-      h += `${S.spouse ? `<div class="card"><div class="kv"><span>배우자</span><b>${HEROINES.find((x) => x.id === S.spouse).name}</b></div></div>` : ''}
+      const secN = Object.keys(S.secret || {}).filter((k) => S.secret[k]).length;
+      const mainId = Game.mainLove();
+      h += `${mainId ? `<div class="card"><div class="kv"><span>${S.spouse ? '배우자' : '연인'}</span><b>${HEROINES.find((x) => x.id === mainId).name}</b></div>${secN || S.sus > 0 ? `<div class="gauge sus">의심${bar(S.sus, 100, 'bad')}<em>${Math.round(S.sus)}</em></div><p class="hint" style="margin:6px 0 0">${secN ? `비밀 연인 ${secN}명 · 의심도가 높을수록 들킬 확률이 올라가요. 매주 조금씩 줄어요.` : '의심이 조금씩 가라앉는 중이에요.'}</p>` : ''}</div>` : ''}
         <div class="heroes">${HEROINES.map((x) => {
           const r = S.rel[x.id];
           if (!r) {
@@ -360,7 +396,7 @@ const UI = (() => {
             return `<div class="hero locked"><div class="ph">?</div><div class="meta"><b>???</b><small>${hint}</small></div></div>`;
           }
           const st = Game.relStage(r.aff, x.id);
-          return `<button class="hero" data-hero="${x.id}"><div class="ph">${x.name.slice(-2)}${photo(x.id)}<span class="tag ${st >= 4 ? 'bad' : 'team'} st">${Game.STAGE_NAME[st]}</span></div><div class="meta"><b>${x.name}</b><small>${x.age}세 · ${x.job}</small>${bar(r.aff, 100, 'pink')}</div></button>`;
+          return `<button class="hero" data-hero="${x.id}"><div class="ph">${x.name.slice(-2)}${photo(x.id)}<span class="tag ${st === 7 ? 'secret' : st >= 4 ? 'bad' : 'team'} st">${Game.STAGE_NAME[st]}</span></div><div class="meta"><b>${x.name}</b><small>${x.age}세 · ${x.job}</small>${bar(r.aff, 100, 'pink')}</div></button>`;
         }).join('')}</div>
         <p class="hint">연락은 사람마다 주 1회 무료예요. 데이트는 그 주의 행동을 써요.</p>`;
       return h;
@@ -401,6 +437,7 @@ const UI = (() => {
       <div class="card"><div class="card-t"><h3>시즌별 기록</h3></div>${table || '<div class="empty">시즌이 끝나면 기록이 쌓여요.</div>'}</div>
       <div class="card"><div class="card-t"><h3>우승 · 수상</h3><small>${S.trophies.length + S.awards.length}개</small></div>
         ${S.trophies.length || S.awards.length ? `<div class="list">${S.trophies.map((t) => `<div class="li"><div class="ic team">${IC.record}</div><div class="tx"><b>${esc(t)}</b></div></div>`).join('')}${S.awards.map((t) => `<div class="li"><div class="ic">${IC.star}</div><div class="tx"><b>${esc(t)}</b></div></div>`).join('')}</div>` : '<div class="empty">아직 없어요.</div>'}</div>
+      ${periodCard()}
       ${c ? `<div class="card"><div class="card-t"><h3>${S.year} 일정</h3></div>
         <div class="kv"><span>스프링캠프</span><b>${wk(c.camp[0])}부터</b></div><div class="kv"><span>정규시즌</span><b>${wk(c.reg[0])} ~ ${wk(c.reg[1])}</b></div>
         <div class="kv"><span>올스타전</span><b>${wk(c.allstar)}</b></div><div class="kv"><span>포스트시즌</span><b>${wk(c.post[0])}부터</b></div>
@@ -412,6 +449,7 @@ const UI = (() => {
     const t = (sel) => e.target.closest(sel);
     let b;
     if ((b = t('[data-tab]'))) { view.tab = b.dataset.tab; render(); window.scrollTo(0, 0); return; }
+    if ((b = t('[data-rq]'))) { if (!b.disabled) requestSheet(b.dataset.rq); return; }
     if ((b = t('[data-a]'))) { const a = b.dataset.a; if (a === 'settings') return settings(); if (a === 'fpos') return fposSheet(); if (a === 'auto4') return startAuto(4); if (a === 'autoS') return startAuto(60); }
     if ((b = t('[data-act]'))) return onAction(b.dataset.act, b.classList.contains('off'));
     if ((b = t('[data-season]'))) { view.season = b.dataset.season; return render(); }
@@ -480,7 +518,7 @@ const UI = (() => {
     const showP = !auto && anim && anim.pitches.length > 0;
     const replay = (showS || showP) && rep.games.length;
     if (replay) parts.push(`<div class="replay"><div class="rp-cap" id="rp-cap">경기 시작</div><div class="rp-charts ${showS && showP ? 'two' : ''}">${showS ? miniField() : ''}${showP ? miniZone() : ''}</div><button class="mini sub" id="rp-skip">결과 바로 보기</button></div>`);
-    const gRow = (g) => `<div class="${g.win ? 'w' : 'l'} ${replay ? 'pend' : ''}" data-gi="${g.gi != null ? g.gi : ''}"><em>${g.win ? '승' : '패'}</em><span>${g.title ? `<b>${esc(g.title)}</b> ` : ''}${esc(g.label)}</span><b>${g.ours}:${g.theirs}</b></div>`;
+    const gRow = (g) => `<div class="${g.win ? 'w' : 'l'} ${replay ? 'pend' : ''}" data-gi="${g.gi != null ? g.gi : ''}"><em>${g.win ? '승' : '패'}</em><span>${g.title ? `<b>${esc(g.title)}</b> ` : ''}${esc(g.label)}${g.sp ? ` <small class="sp">선발 ${esc(g.sp)}</small>` : ''}</span><b>${g.ours}:${g.theirs}</b></div>`;
     if (rep.series && rep.series.length) {
       rep.series.forEach((x, i) => {
         const tagCls = x.tag === '스윕' || x.tag === '위닝시리즈' ? 'good' : 'bad';
@@ -496,6 +534,7 @@ const UI = (() => {
     (rep.lines || []).forEach((l) => parts.push(`<p class="small muted">${esc(l)}</p>`));
     (rep.events || []).forEach((l) => parts.push(`<p style="color:var(--bad)">${esc(l)}</p>`));
     if (!parts.length) parts.push('<p class="muted">조용한 한 주가 지나갔어요.</p>');
+    if (rep.period && !auto) parts.unshift(`<span class="pd-pill sm" style="background:${pcol(rep.period.color)}">${rep.period.name}</span>`);
     sheet({ title: auto ? '자동 진행 결과' : `${rep.title} 결과`, body: parts.join(''), buttons: [{ label: '확인', onClick: () => { clearTimeout(rpTimer); render(); processPending(); } }], onRender: (b) => { if (replay) runReplay(b, rep); } });
   }
 
@@ -547,7 +586,7 @@ const UI = (() => {
       });
       const row = body.querySelector(`.games [data-gi="${gi}"]`);
       if (row) row.classList.remove('pend');
-      if (g && cap) cap.innerHTML = `<b>${esc(g.ser ? `${g.ser.opp} ${g.label}` : g.label)}</b> ${g.win ? '승' : '패'} ${g.ours}:${g.theirs}${g.me ? ` · ${esc(g.me)}` : ''}`;
+      if (g && cap) cap.innerHTML = `<b>${esc(g.ser ? `${g.ser.opp} ${g.label}` : g.label)}</b> ${g.win ? '승' : '패'} ${g.ours}:${g.theirs}${g.sp ? ` · 상대 선발 ${esc(g.sp)}` : ''}${g.me ? ` · ${esc(g.me)}` : ''}`;
     };
     const tick = () => {
       if (step >= order.length) { if (cap) cap.innerHTML += ' <span class="muted">· 이번 주 끝</span>'; $('#rp-skip', body)?.remove(); return; }
@@ -622,6 +661,12 @@ const UI = (() => {
     const heroBlock = (h, lines, extra) => `<div class="hd-ph">${h.name.slice(-2)}${photo(h.id)}</div>${lines.map((l, i) => `<div class="bubble">${i === 0 ? `<div class="who">${h.name} · ${h.age}세 ${h.job}</div>` : ''}${esc(l)}</div>`).join('')}${extra ? `<p style="color:var(--bad);font-weight:600">${extra}</p>` : ''}`;
     switch (ev.type) {
       case 'msg': sheet({ title: d.title, body: `<p class="pre">${esc(d.text)}</p>`, buttons: [{ label: '확인', onClick: () => done() }] }); break;
+      case 'love': {
+        const L = Game.loveInfo(d);
+        const h = HEROINES.find((x) => x.id === L.hid);
+        sheet({ title: L.title, body: (L.news ? `<div class="news-flash">${esc(L.news)}</div>` : '') + heroBlock(h, L.lines), buttons: L.opts.map((o, i) => ({ label: esc(o), cls: 'sub opt', onClick: () => done(i) })) });
+        break;
+      }
       case 'meet': { const h = HEROINES.find((x) => x.id === d.hid); sheet({ title: '새로운 만남', body: `<p class="muted">${h.meet}에서</p>` + heroBlock(h, h.intro), buttons: [{ label: '확인', onClick: () => done() }] }); break; }
       case 'path': {
         const o = Game.ovr();
@@ -658,11 +703,22 @@ const UI = (() => {
       case 'indyAsk': sheet({ title: '꿈을 계속 좇을까?', body: `<p>${S.age}세. 독립리그에서 또 한 시즌이 끝났어요.</p><p>한 시즌 더 도전할까요?</p>`, row: true, buttons: [{ label: '꿈을 접는다', cls: 'danger', onClick: () => done('retire') }, { label: '한 시즌 더', onClick: () => done('stay') }] }); break;
       case 'indyEnd': sheet({ title: '마지막 시즌', body: '<p>프로의 문은 끝내 열리지 않았어요. 그래도 끝까지 그라운드에 섰어요.</p>', buttons: [{ label: '은퇴', onClick: () => done() }] }); break;
       case 'nego': sheet({ title: `${S.year} 연봉 협상`, body: `${d.agent ? '<p class="small muted">에이전트가 협상 테이블에 함께 앉았어요.</p>' : ''}<div class="kv"><span>작년 연봉</span><b>${Game.won(d.prev)}</b></div><div class="kv"><span>작년 WAR</span><b>${d.war}</b></div><div class="kv"><span>구단 제시액</span><b>${Game.won(d.offer)}</b></div><p class="hint">더 요구하면 15% 인상을 노려볼 수 있지만, 실패하면 멘탈이 떨어져요.</p>`, row: true, buttons: [{ label: '더 요구하기', cls: 'sub', onClick: () => done('ask') }, { label: '수락', onClick: () => done('ok') }] }); break;
-      case 'fa': {
-        const btns = d.offers.map((of, i) => { const t = Game.teamInfo(of.team); return { label: of.lg === 'KBO' ? `${t.name}<small>${of.years}년 총액 ${Game.won(of.total)} · 계약금 ${Game.won(of.bonus)}</small>` : `${t.name} (MLB)<small>${of.years}년 총액 ${Game.usd(of.aav * of.years)} · 연 ${Game.usd(of.aav)}</small>`, cls: i ? 'sub' : '', onClick: () => done(i) }; });
-        sheet({ title: 'FA 자격을 얻었어요', body: `<p>${S.phase === 'KBO' && S.contract.kind === 'annual' ? 'KBO 1군 7시즌을 채웠어요.' : '계약이 끝나 FA 시장에 나왔어요.'} 어느 팀과 계약할까요?</p>`, buttons: btns });
+      case 'fa':
+      case 'posting': {
+        // 협상 도중 새로고침해도 이어지도록 대기열에 다시 넣어둔다
+        S.pending.unshift(ev); Game.save();
+        market(ev, (i) => { const q = G().pending; if (q[0] === ev) q.shift(); done(i); });
         break;
       }
+      case 'trade':
+        sheet({ title: '트레이드 후보', body: '<p>구단이 트레이드 상대를 찾아왔어요. 어디로 갈까요?</p>', buttons: d.offers.map((o, i) => ({ label: `${Game.teamInfo(o.team).name}<small>${o.note}</small>`, cls: 'sub', onClick: () => done(i) })).concat([{ label: '요청 철회하고 남기', cls: 'sub', onClick: () => done('stay') }]) });
+        break;
+      case 'traded':
+        sheet({ title: '트레이드 통보', body: `<p>구단이 ${Game.teamInfo(d.team).name}와 트레이드에 합의했다고 알려왔어요.</p>${d.ntc ? '<p class="hint">계약서에 트레이드 거부권이 있어서 거절할 수 있어요.</p>' : ''}`, row: d.ntc, buttons: d.ntc ? [{ label: '거부권 행사', cls: 'sub', onClick: () => done('refuse') }, { label: '받아들인다', onClick: () => done('ok') }] : [{ label: '짐 싸기', onClick: () => done('ok') }] });
+        break;
+      case 'optout':
+        sheet({ title: '옵트아웃 선택', body: `<p>계약서의 옵트아웃 조항을 쓸 수 있어요. 남은 계약은 ${d.left}년이에요. FA 시장에 다시 나갈까요?</p>`, row: true, buttons: [{ label: '남는다', cls: 'sub', onClick: () => done('stay') }, { label: '옵트아웃', onClick: () => done('out') }] });
+        break;
       case 'choice': {
         const c2 = Game.choiceInfo(d.id);
         sheet({ title: c2.title, body: `<p class="pre">${esc(c2.text)}</p>`, buttons: c2.opts.map((o, i) => ({ label: esc(o.label), cls: 'sub opt', onClick: () => done(i) })) });
@@ -692,15 +748,16 @@ const UI = (() => {
     const st = Game.relStage(r.aff, id);
     const blocked = Game.dateBlocked(id);
     const propose = Game.proposeCheck(id);
-    const canConfess = !S.partner && !S.spouse && st === 3;
+    const canConfess = st === 3;
+    const sneak = Game.cheating(id);
     const body = `<div class="hd-ph">${h.name.slice(-2)}${photo(h.id)}</div>
       <div class="kv" style="margin-top:10px"><span>${h.age}세 · ${h.job}</span><b>${Game.STAGE_NAME[st]}</b></div>
       <div class="gauge">호감${bar(r.aff, 100, 'pink')}<em>${Math.round(r.aff)}</em></div>
       <div class="list" style="margin-top:8px">
         <button class="li" data-h="call" ${Game.canContact(id) ? '' : 'disabled'}><div class="ic">${IC.phone}</div><div class="tx"><b>연락하기</b><small>${Game.canContact(id) ? '무료 · 호감 조금 상승' : '이번 주에 이미 연락했어요'}</small></div></button>
-        <button class="li" data-h="date" ${blocked ? 'disabled' : ''}><div class="ic">${IC.heart}</div><div class="tx"><b>데이트</b><small>${blocked || '이번 주 행동을 써요'}</small></div></button>
+        <button class="li" data-h="date" ${blocked ? 'disabled' : ''}><div class="ic">${IC.heart}</div><div class="tx"><b>데이트</b><small>${blocked || (sneak ? '몰래 데이트 · 들킬 위험이 있어요' : '이번 주 행동을 써요')}</small></div></button>
         <button class="li" data-h="gift"><div class="ic">${IC.gift}</div><div class="tx"><b>선물</b><small>돈을 써서 호감 상승</small></div></button>
-        ${canConfess ? `<button class="li" data-h="confess" ${r.aff >= 70 ? '' : 'disabled'}><div class="ic">${IC.star}</div><div class="tx"><b>고백하기</b><small>${r.aff >= 70 ? '성공하면 연인이 돼요' : '호감 70부터 할 수 있어요'}</small></div></button>` : ''}
+        ${canConfess ? `<button class="li" data-h="confess" ${r.aff >= 70 ? '' : 'disabled'}><div class="ic">${IC.star}</div><div class="tx"><b>고백하기</b><small>${r.aff >= 70 ? (sneak ? '성공하면 비밀 연인이 돼요' : '성공하면 연인이 돼요') : '호감 70부터 할 수 있어요'}</small></div></button>` : ''}
         ${S.partner === id && !S.engaged && !S.spouse ? `<button class="li" data-h="propose" ${propose ? 'disabled' : ''}><div class="ic">${IC.star}</div><div class="tx"><b>프러포즈</b><small>${propose || '반지와 신혼집 준비 완료'}</small></div></button>` : ''}
       </div>`;
     sheet({
@@ -718,7 +775,7 @@ const UI = (() => {
           }
           else if (a === 'date') datePicker(h);
           else if (a === 'gift') giftPicker(h);
-          else if (a === 'confess') { const ok = Game.confess(id); talk(h, ok ? ['사실 나도 같은 마음이었어요.', '오늘부터 1일이에요.'] : ['미안해요, 아직은 잘 모르겠어요.', '조금만 더 시간을 줄래요?'], ok ? '연인이 됐어요!' : '호감 -10', render); }
+          else if (a === 'confess') { const ok = Game.confess(id); const sec = ok && Game.relStage(G().rel[id].aff, id) === 7; talk(h, ok ? (sec ? ['…너 만나는 사람 있는 거 알아.', '그래도 좋아. 우리 둘만 아는 걸로 하자.'] : ['사실 나도 같은 마음이었어요.', '오늘부터 1일이에요.']) : ['미안해요, 아직은 잘 모르겠어요.', '조금만 더 시간을 줄래요?'], ok ? (sec ? '비밀 연인이 됐어요. 들키지 않게 조심하세요.' : '연인이 됐어요!') : '호감 -10', render); }
           else if (a === 'propose') { const ok = Game.propose(id); talk(h, ok ? ['이거 반지야?', '응. 평생 옆에 있을게.'] : ['조금만 생각할 시간을 줘.'], ok ? '프러포즈 성공! 6주 뒤에 결혼식이에요.' : '호감 -8', render); }
         };
       },
@@ -732,7 +789,7 @@ const UI = (() => {
     const off = Game.isOffseason();
     sheet({
       title: `${h.name}와 어디 갈까요?`, dismiss: true,
-      body: `<div class="list">${DATE_PLACES.filter((p) => !p.special || Game.relStage(S.rel[h.id].aff, h.id) >= 3).map((p) => { const why = p.needCar && !S.car ? '차가 있어야 해요' : p.offseason && !off ? '비시즌에만 가능' : S.money < p.cost ? '돈이 부족해요' : ''; return `<button class="li ${p.special ? 'special' : ''}" data-p="${p.id}" ${why ? 'disabled' : ''}><div class="tx"><b>${p.name}${h.fav === p.id ? ' ♥' : ''}</b><small>${why || (p.special ? '둘만의 밤 · 피로 +35 · 멘탈 +25' : `피로 -${p.cond}`)}</small></div><span class="val">${Game.won(p.cost)}</span></button>`; }).join('')}</div><p class="hint">♥ 표시는 ${h.name}이(가) 좋아하는 곳이에요.</p>`,
+      body: `<div class="list">${DATE_PLACES.filter((p) => !p.special || Game.relStage(S.rel[h.id].aff, h.id) >= p.stage).map((p) => { const rk = Game.cheating(h.id) ? ` · 들킬 위험 +${Game.dateRiskOf(p.id)}` : ''; const why = p.needCar && !S.car ? '차가 있어야 해요' : p.offseason && !off ? '비시즌에만 가능' : S.money < p.cost ? '돈이 부족해요' : ''; return `<button class="li ${p.special ? 'special' : ''}" data-p="${p.id}" ${why ? 'disabled' : ''}><div class="tx"><b>${p.name}${h.fav === p.id ? ' ♥' : ''}</b><small>${why || (p.special ? `둘만의 밤 · 피로 +${p.fat} · 멘탈 +${p.mental}` : `피로 -${p.cond}`) + (why ? '' : rk)}</small></div><span class="val">${Game.won(p.cost)}</span></button>`; }).join('')}</div><p class="hint">♥ 표시는 ${h.name}이(가) 좋아하는 곳이에요.${Game.cheating(h.id) ? ' 연인 몰래 만나면 의심도가 쌓이고, 높을수록 들킬 확률이 올라가요.' : ''}</p>`,
       buttons: [{ label: '취소', cls: 'sub' }],
       onRender: (b, close) => { b.onclick = (e) => { const x = e.target.closest('[data-p]'); if (!x || x.disabled) return; close(); runWeek('date', { hid: h.id, place: x.dataset.p }); }; },
     });
@@ -771,10 +828,25 @@ const UI = (() => {
       title: '설정', dismiss: true,
       body: `<div class="field"><label>화면 테마</label><div class="seg" id="th">${[['system', '시스템'], ['light', '라이트'], ['dark', '다크']].map(([k, n]) => `<button data-v="${k}" class="${cur === k ? 'on' : ''}">${n}</button>`).join('')}</div></div><p class="hint">게임은 매주 자동 저장돼요.</p>`,
       buttons: [
+        { label: '실제 선수 명단', cls: 'sub', onClick: () => rosterSheet() },
         { label: '은퇴하기', cls: 'sub', onClick: () => sheet({ title: '정말 은퇴할까요?', body: '<p>커리어가 끝나고 엔딩으로 넘어가요.</p>', row: true, buttons: [{ label: '취소', cls: 'sub' }, { label: '은퇴', cls: 'danger', onClick: () => { Game.resolve({ type: 'forcedRetire', data: {} }); Game.save(); ending(); } }] }) },
         { label: '새로 시작하기', cls: 'sub', onClick: () => sheet({ title: '새로 시작할까요?', body: '<p>지금 저장된 선수는 지워져요.</p>', row: true, buttons: [{ label: '취소', cls: 'sub' }, { label: '새로 시작', cls: 'danger', onClick: () => { Game.wipe(); create(); } }] }) },
         { label: '닫기' }],
       onRender: (b) => { $('#th', b).onclick = (e) => { const x = e.target.closest('button'); if (!x) return; try { if (x.dataset.v === 'system') localStorage.removeItem('baseballLife.theme'); else localStorage.setItem('baseballLife.theme', x.dataset.v); } catch (er) { /* */ } $$('#th button', b).forEach((q) => q.classList.toggle('on', q === x)); applyTeam(); }; },
+    });
+  }
+
+  function rosterSheet() {
+    const info = Game.rosterInfo();
+    let txt = Game.rosterText();
+    sheet({
+      title: '실제 선수 명단', dismiss: true,
+      body: `<p class="hint">명단은 이 기기 브라우저에만 저장되고 게임 파일에는 들어가지 않아요. 상대 선발투수와 시상식 소식에 이름이 나와요.</p>
+        <div class="field"><label>지금 등록된 명단</label><div class="weekline" id="ro-st">${info.players ? `${info.teams}개 팀, ${info.players}명` : '없음 (가상 이름 사용 중)'}</div></div>
+        <div class="field"><label>명단 붙여넣기</label><textarea id="ro-tx" class="ro-tx" spellcheck="false" placeholder="[LG 트윈스]&#10;투수: 임찬규(1992), 손주영(1998)&#10;타자: 홍창기(1993), 문보경(2000)">${esc(Game.rosterText())}</textarea></div>
+        <p class="hint">팀 이름은 [ ] 안에, 선수는 투수:, 타자: 뒤에 쉼표로 적어요. 괄호 속 출생연도를 적으면 나이가 들어 은퇴해요. 투수는 앞의 5명이 선발로 나와요.</p>`,
+      buttons: [{ label: '비우기', cls: 'sub', onClick: () => { Game.setRoster(''); toast('명단을 지웠어요'); } }, { label: '저장', onClick: (b) => { const r = Game.setRoster(txt); toast(r.players ? `${r.teams}개 팀, ${r.players}명 저장${r.bad.length ? ` (모르는 팀: ${r.bad.join(', ')})` : ''}` : '인식된 선수가 없어요'); } }],
+      onRender: (b) => { $('#ro-tx', b).oninput = (e) => { txt = e.target.value; }; },
     });
   }
 
@@ -798,6 +870,112 @@ const UI = (() => {
       buttons: [{ label: '취소', cls: 'sub' }],
       onRender: (b, close) => { b.onclick = (e) => { const x = e.target.closest('[data-f]'); if (!x || x.disabled) return; close(); Game.setFpos(x.dataset.f); toast(`${Game.FPOS[x.dataset.f].name}로 바꿨어요`); render(); }; },
     });
+  }
+
+  // ---------- FA 시장 / 포스팅 / 협상 ----------
+  function offerTerms(of) {
+    const t = Game.teamInfo(of.team);
+    const money = of.lg === 'KBO'
+      ? `${of.years}년 총액 ${Game.won(of.total + (of.optAmt || 0) * of.years)}${of.optAmt ? ` (보장 ${Game.won(of.total)})` : ''} · 계약금 ${Game.won(of.bonus)}`
+      : `${of.years}년 ${Game.usd((of.aav + (of.optAmt || 0)) * of.years)} · 연 ${Game.usd(of.aav)}${of.optAmt ? ` + 옵션 ${Game.usd(of.optAmt)}` : ''}`;
+    return { name: of.lg === 'MLB' ? `${t.name}` : t.name, money, clause: Game.clauseText(of) };
+  }
+  function chanceWord(p) { return p >= 0.7 ? ['높음', 'good'] : p >= 0.4 ? ['보통', 'warn'] : ['낮음', 'bad']; }
+  function market(ev, finish) {
+    const S = G();
+    const d = ev.data;
+    const posting = ev.type === 'posting';
+    const intro = posting ? '포스팅에 응찰한 메이저리그 구단들이에요. 조건을 직접 협상할 수 있어요.'
+      : S.phase === 'KBO' && S.contract && S.contract.kind === 'annual' ? 'KBO 1군 7시즌을 채워 FA 자격을 얻었어요. 조건을 직접 협상해 보세요.' : '계약이 끝나 FA 시장에 나왔어요. 조건을 직접 협상해 보세요.';
+    const body = `<p>${intro}</p><p class="hint" style="margin-top:-4px">구단마다 협상은 3번까지예요. 무리하게 요구하면 관심도가 떨어지고, 협상 테이블을 떠날 수도 있어요.</p>
+      <div class="offers">${d.offers.map((of, i) => {
+        const t = offerTerms(of);
+        return `<div class="offer ${of.agreed ? 'ok' : ''}">
+          <div class="of-h"><b>${esc(t.name)}</b>${of.lg === 'MLB' ? '<span class="tag">MLB</span>' : ''}${of.agreed ? '<span class="tag good">합의</span>' : ''}</div>
+          <div class="of-m">${t.money}</div>${t.clause ? `<div class="of-c">${esc(t.clause)}</div>` : ''}
+          <div class="gauge">관심${bar(of.interest, 100, of.interest >= 65 ? 'good' : of.interest >= 40 ? 'warn' : 'bad')}<em>${of.interest}</em></div>
+          <div class="of-b"><button class="btn sub" data-ng="${i}" ${of.agreed || (of.rounds || 0) >= 3 ? 'disabled' : ''}>${of.agreed ? '합의 완료' : (of.rounds || 0) >= 3 ? '협상 종료' : `협상하기 (${of.rounds || 0}/3)`}</button><button class="btn" data-sg="${i}">계약</button></div>
+        </div>`;
+      }).join('')}</div>`;
+    sheet({
+      title: posting ? '포스팅 결과' : 'FA 시장', body,
+      buttons: posting ? [{ label: '모두 거절하고 잔류', cls: 'sub', onClick: () => finish('stay') }] : [],
+      onRender: (b, close) => {
+        b.onclick = (e) => {
+          const n = e.target.closest('[data-ng]'); const g = e.target.closest('[data-sg]');
+          if (n && !n.disabled) { close(); negoSheet(ev, +n.dataset.ng, finish); }
+          if (g) {
+            const of = d.offers[+g.dataset.sg]; const t = offerTerms(of);
+            close();
+            sheet({ title: `${t.name}와 계약할까요?`, body: `<p>${t.money}</p>${t.clause ? `<p class="small muted">${esc(t.clause)}</p>` : ''}`, row: true, buttons: [{ label: '다시 보기', cls: 'sub', onClick: () => market(ev, finish) }, { label: '계약', onClick: () => finish(+g.dataset.sg) }] });
+          }
+        };
+      },
+    });
+  }
+  function negoSheet(ev, i, finish) {
+    const off = ev.data.offers[i];
+    const kbo = off.lg === 'KBO';
+    const dm = { money: 0, years: 0, opt: false, bonus: false, post: false, ntc: false, optout: false };
+    const seg = (key, opts) => `<div class="seg ng" data-k="${key}">${opts.map(([v, n]) => `<button data-v="${v}" class="${String(dm[key]) === String(v) ? 'on' : ''}">${n}</button>`).join('')}</div>`;
+    const chip = (key, n, tip) => `<button class="chip ng-c" data-c="${key}"><b>${n}</b><small>${tip}</small></button>`;
+    const body = `<div class="kv"><span>${esc(offerTerms(off).name)} 관심도</span><b>${off.interest}</b></div>
+      <div class="field"><label>금액</label>${seg('money', [[0, '그대로'], [10, '+10%'], [20, '+20%']])}</div>
+      <div class="field"><label>계약 기간</label>${seg('years', [[-1, '1년 줄이기'], [0, '그대로'], [1, '1년 늘리기']])}</div>
+      <div class="field"><label>계약 구조</label>${seg('opt', [[false, '전액 보장'], [true, '옵션 포함']])}<p class="hint" style="margin:4px 0 0">옵션 포함: 총액이 15% 늘지만 30%는 WAR ${kbo ? '2.5' : '2.0'} 이상일 때만 받아요. 구단이 좋아해요.</p></div>
+      ${kbo ? `<div class="field"><label>계약금 비중</label>${seg('bonus', [[false, '기본 35%'], [true, '높게 50%']])}</div>` : ''}
+      <div class="field"><label>특약</label><div class="chips ng-chips">${kbo ? chip('post', '메이저리그 진출 허용', '언제든 포스팅 요청 승인') : chip('optout', '옵트아웃', '3년 이상 계약, 2년 뒤 FA 선택')}${chip('ntc', '트레이드 거부권', '원치 않는 트레이드 거절')}</div></div>
+      <div class="ng-prev" id="ng-prev"></div>`;
+    const upd = (b) => {
+      const p = Game.negoChance(off, dm);
+      const pv = Game.previewDemand(off, dm);
+      const t = offerTerms(pv); const [w, cls] = chanceWord(p);
+      $('#ng-prev', b).innerHTML = `<div class="small muted">요구 조건</div><div class="ng-terms">${t.money}</div>${t.clause ? `<div class="of-c">${esc(t.clause)}</div>` : ''}<div class="kv" style="margin-top:6px"><span>받아들일 가능성</span><b class="c-${cls}">${w} (${Math.round(p * 100)}%)</b></div>`;
+    };
+    sheet({
+      title: `협상 ${(off.rounds || 0) + 1}/3`, body, row: true,
+      buttons: [{ label: '뒤로', cls: 'sub', onClick: () => market(ev, finish) }, { label: '제안하기', onClick: () => propose() }],
+      onRender: (b) => {
+        upd(b);
+        b.onclick = (e) => {
+          const sb = e.target.closest('.seg.ng button');
+          if (sb) { const k = sb.parentNode.dataset.k; const v = sb.dataset.v; dm[k] = v === 'true' ? true : v === 'false' ? false : +v; $$('button', sb.parentNode).forEach((x) => x.classList.toggle('on', x === sb)); upd(b); return; }
+          const c = e.target.closest('.ng-c');
+          if (c) { const k = c.dataset.c; dm[k] = !dm[k]; c.classList.toggle('on', dm[k]); upd(b); }
+        };
+      },
+    });
+    function propose() {
+      const r = Game.negotiate(off, dm);
+      const S = G();
+      const name = offerTerms(off).name;
+      Game.save();
+      if (r.res === 'accept') {
+        ev.data.offers[i] = r.offer; Game.save();
+        const t = offerTerms(r.offer);
+        sheet({ title: '합의!', body: `<p>"좋습니다. 그 조건으로 하죠." ${esc(name)} 단장이 손을 내밀었다.</p><div class="kv"><span>계약 조건</span><b>${t.money}</b></div>${t.clause ? `<p class="small muted">${esc(t.clause)}</p>` : ''}`, row: true, buttons: [{ label: '다른 팀 보기', cls: 'sub', onClick: () => market(ev, finish) }, { label: '바로 계약', onClick: () => finish(i) }] });
+      } else if (r.res === 'counter') {
+        const t = offerTerms(r.offer);
+        sheet({ title: '역제안', body: `<p>"${esc(r.why)}." ${esc(name)} 쪽에서 수정안을 내밀었다.</p><div class="kv"><span>수정안</span><b>${t.money}</b></div>${t.clause ? `<p class="small muted">${esc(t.clause)}</p>` : ''}`, row: true, buttons: [{ label: '거절', cls: 'sub', onClick: () => market(ev, finish) }, { label: '수정안 수락', onClick: () => { ev.data.offers[i] = r.offer; Game.save(); market(ev, finish); } }] });
+      } else if (r.res === 'walk') {
+        ev.data.offers.splice(i, 1);
+        if (!ev.data.offers.length) ev.data.offers.push(Game.fallbackOffer());
+        Game.save();
+        sheet({ title: '협상 결렬', body: `<p>${esc(name)}이(가) 협상 테이블을 떠났다. "다른 선수를 알아보겠습니다."</p>`, buttons: [{ label: '돌아가기', onClick: () => market(ev, finish) }] });
+      } else {
+        sheet({ title: '거절', body: `<p>"그 조건은 어렵습니다." 관심도가 ${off.interest}(으)로 떨어졌어요.</p>`, buttons: [{ label: '돌아가기', onClick: () => market(ev, finish) }] });
+      }
+      void S;
+    }
+  }
+  function requestSheet(kind) {
+    const S = G();
+    if (kind === 'trade') {
+      sheet({ title: '트레이드 요청', body: `<p>구단에 공식적으로 트레이드를 요청할까요?</p><p class="hint">요청만으로 감독 신뢰가 18 떨어져요. 1~2주 뒤 구단이 후보 팀을 가져오면 직접 고를 수 있고, 성사되지 않으면 신뢰가 더 떨어져요. 벤치 멤버이거나 신뢰가 낮을수록 잘 받아들여져요.</p>`, row: true, buttons: [{ label: '취소', cls: 'sub' }, { label: '요청하기', cls: 'danger', onClick: () => { const t = Game.requestTrade(); sheet({ title: '요청 완료', body: `<p class="pre">${esc(t)}</p>`, buttons: [{ label: '확인', onClick: render }] }); } }] });
+    } else {
+      const clause = S.contract && S.contract.post;
+      sheet({ title: '포스팅 요청', body: `<p>메이저리그 진출을 위해 구단에 포스팅을 요청할까요?</p><p class="hint">${clause ? '계약서에 메이저리그 진출 허용 조항이 있어서 바로 승인돼요.' : '감독 신뢰와 인기가 높을수록 허락받기 쉬워요. 거절당하면 신뢰 -12, 멘탈 -6이고 내년에 다시 할 수 있어요.'} 승인되면 시즌이 끝난 뒤 응찰한 구단과 직접 협상해요.</p>`, row: true, buttons: [{ label: '취소', cls: 'sub' }, { label: '요청하기', onClick: () => { const r = Game.requestPosting(); sheet({ title: r.ok ? '포스팅 승인!' : '포스팅 거절', body: `<p class="pre">${esc(r.text)}</p>`, buttons: [{ label: '확인', onClick: render }] }); } }] });
+    }
   }
 
   // ---------- 시작 / 생성 ----------

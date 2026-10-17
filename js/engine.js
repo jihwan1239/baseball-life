@@ -198,7 +198,7 @@ const Game = (() => {
     S.chart = { year: S.year, lv: [], spray: [], pitches: [] };
   }
   function recOK() {
-    if (!S || !S.chart || (S.wk && S.wk.postMode)) return false;
+    if (!S || !S.chart || (S.wk && (S.wk.postMode || S.wk.exh))) return false;
     const k = amateur() ? S.phase : S.level;
     S.chart.lv = S.chart.lv || [];
     if (k && !S.chart.lv.includes(k)) S.chart.lv.push(k);
@@ -348,7 +348,7 @@ const Game = (() => {
       log: [], pending: [], flags: {}, injury: 0, injCount: 0,
       hs: { tourn: null, scoutK: 5, scoutM: 0, draftDone: false, path: null },
       teams: {}, teamRec: { w: 0, l: 0 }, rot: 0, recent: [],
-      post: null, contactWeek: {}, lastDate: {}, hof: false,
+      post: null, contactWeek: {}, lastDate: {}, hof: false, secret: {}, sus: 0,
       settings: { diff: 1, sound: true, askKey: true },
       stats: { weeks: 0 },
     };
@@ -361,7 +361,7 @@ const Game = (() => {
   }
   function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* 저장 실패 무시 */ } }
   function load() {
-    try { const s = localStorage.getItem(SAVE_KEY); if (!s) return null; S = JSON.parse(s); if (!S.chart) newChart(); if (!S.fpos) S.fpos = 'RF'; if (S.trust == null) S.trust = 50; return S; } catch (e) { return null; }
+    try { const s = localStorage.getItem(SAVE_KEY); if (!s) return null; S = JSON.parse(s); if (!S.chart) newChart(); if (!S.fpos) S.fpos = 'RF'; if (S.trust == null) S.trust = 50; if (!S.secret) S.secret = {}; if (S.sus == null) S.sus = 0; return S; } catch (e) { return null; }
   }
   function hasSave() { try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { return false; } }
   function wipe() { try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* */ } S = null; }
@@ -452,13 +452,60 @@ const Game = (() => {
     obj[k] = Math.min(99, +(cur + g).toFixed(1));
     return +(obj[k] - cur).toFixed(1);
   }
+  // ---------- 기간 (비시즌/캠프/시범경기/정규시즌/포스트시즌/마무리훈련) ----------
+  const PERIOD_INFO = {
+    off: { name: '스토브리그', desc: '경기 없음 · 휴식 효과 ↑ · 광고 촬영 페널티 없음', train: 1, color: '#868e96' },
+    camp: { name: '스프링캠프', desc: '경기 없음 · 훈련 효과 1.3배', train: 1.3, color: '#12b886' },
+    pre: { name: '시범경기', desc: '주 2경기 · 기록에 남지 않음', train: 1.1, color: '#7048e8' },
+    reg: { name: '정규시즌', desc: '주 6경기(3연전 2번) · 광고 촬영 시 인기·신뢰 하락', train: 1, color: 'team' },
+    post: { name: '포스트시즌', desc: '가을야구', train: 1, color: '#e5484d' },
+    out: { name: '시즌 종료', desc: '팀 일정 끝 · 쉬면서 재정비', train: 1, color: '#868e96' },
+    finish: { name: '마무리 훈련', desc: '경기 없음 · 훈련 효과 1.1배', train: 1.1, color: '#f08c00' },
+    winter: { name: '동계훈련', desc: '대회 없음 · 훈련 효과 1.15배', train: 1.15, color: '#339af0' },
+    season: { name: '시즌 중', desc: '주말마다 경기', train: 1, color: 'team' },
+    tourn: { name: '대회 기간', desc: '토너먼트 진행', train: 1, color: '#e5484d' },
+    ret: { name: '은퇴', desc: '', train: 1, color: '#868e96' },
+  };
+  function periodKey(w = S.week) {
+    if (S.phase === 'RETIRED') return 'ret';
+    if (amateur()) {
+      if (w >= 44 || w < 8) return 'winter';
+      const cal = amCal()[w];
+      if (cal && cal.t === 'tourn') return 'tourn';
+      return 'season';
+    }
+    const c = seasonCfg();
+    if (w >= c.camp[0] && w <= c.camp[1]) return 'camp';
+    if (w > c.camp[1] && w < c.reg[0]) return 'pre';
+    if (w >= c.reg[0] && w <= c.reg[1]) return 'reg';
+    const postEnd = c.post[0] < 90 ? c.post[1] : c.reg[1];
+    if (c.post[0] < 90 && w >= c.post[0] && w <= c.post[1]) return S.post && S.post.alive ? 'post' : 'out';
+    if (w > postEnd && w <= postEnd + 4) return 'finish';
+    return 'off';
+  }
+  function period(w = S.week) {
+    const k = periodKey(w);
+    const P = Object.assign({ k }, PERIOD_INFO[k]);
+    if (k === 'reg' && !amateur()) { const c = seasonCfg(); P.desc = `${w - c.reg[0] + 1} / ${c.reg[1] - c.reg[0] + 1}주차 · ` + P.desc; }
+    if (k === 'tourn' && S.hs.tourn) P.name = S.hs.tourn.alive ? S.hs.tourn.name : `${S.hs.tourn.name} (탈락)`;
+    if (k === 'season') P.name = S.phase === 'UNI' ? 'U-리그 시즌' : '주말리그 시즌';
+    return P;
+  }
+  // 1년 48주를 기간별로 나눈 타임라인
+  function timeline() {
+    const out = [];
+    for (let w = 0; w < 48; w++) {
+      const k = periodKey(w) === 'out' ? 'post' : periodKey(w);
+      if (out.length && out[out.length - 1].k === k) out[out.length - 1].n++;
+      else out.push({ k, n: 1, name: PERIOD_INFO[k].name, color: PERIOD_INFO[k].color, from: w });
+    }
+    return out;
+  }
   function trainMult() {
     let m = ageMult();
     if (S.fat > 70) m *= 0.55; else if (S.fat > 50) m *= 0.82;
     m *= 0.9 + S.mental / 500;
-    const c = !amateur() && S.phase !== 'RETIRED' ? seasonCfg() : null;
-    if (c && S.week >= c.camp[0] && S.week <= c.camp[1]) m *= 1.3;
-    if (amateur() && (S.week >= 44 || S.week < 8)) m *= 1.15;
+    m *= PERIOD_INFO[periodKey()].train;
     return m;
   }
   const PITCH_ORDER = ['SL', 'CU', 'CH', 'FS', 'FC', 'SI', 'SW'];
@@ -539,8 +586,9 @@ const Game = (() => {
       S.money -= lessonCost(); W.gains = doTraining(sub.id, sub.pitch, true); W.lines.push(`개인 레슨: ${sub.name}`);
     } else if (act === 'rest') {
       const h = HOUSES.find((x) => x.id === S.house);
-      S.fat = clamp(S.fat - 34 - h.cond, 0, 100); S.mental = clamp(S.mental + 6, 0, 100);
-      W.gains = ['피로 크게 회복', '멘탈 +6'];
+      const offRest = ['off', 'out', 'winter'].includes(periodKey());
+      S.fat = clamp(S.fat - 34 - h.cond - (offRest ? 12 : 0), 0, 100); S.mental = clamp(S.mental + (offRest ? 9 : 6), 0, 100);
+      W.gains = offRest ? ['비시즌 휴식: 피로 완전 회복', '멘탈 +9'] : ['피로 크게 회복', '멘탈 +6'];
       if (S.injury > 0) { S.injury = Math.max(0, S.injury - 1); W.gains.push('재활 진행'); }
       W.lines.push('휴식');
     } else if (act === 'video') {
@@ -577,6 +625,7 @@ const Game = (() => {
     if (amateur()) return buildHSWeek(W);
     if (S.phase === 'RETIRED') return;
     const c = seasonCfg();
+    if (periodKey() === 'pre' && S.phase !== 'INDY') return buildPreWeek(W);
     if (S.week >= c.reg[0] && S.week <= c.reg[1]) return buildRegWeek(W, c);
     if (S.week >= c.post[0] && S.week <= c.post[1]) return buildPostWeek(W, c);
   }
@@ -638,6 +687,15 @@ const Game = (() => {
     const my = S.level === 'MLB' ? S.teamStr : L;
     const op = S.level === 'MLB' ? oppStr : L + rnd(-3, 3);
     return { teamOff: my, teamPit: my, oppOff: op, oppPit: op };
+  }
+  function buildPreWeek(W) {
+    const pool = S.phase === 'KBO' ? KBO_TEAMS.filter((t) => t.id !== S.team) : MLB_TEAMS.filter((t) => t.id !== S.team);
+    W.exh = true;
+    W.games = [0, 1].map((i) => {
+      const ot = pick(pool);
+      const L = S.phase === 'KBO' ? 56 : 62;
+      return { kind: 'exh', label: `시범경기 vs ${ot.name}`, opp: { id: ot.id, name: ot.name, c1: ot.c1, c2: ot.c2 }, L, lv: { teamOff: L, teamPit: L, oppOff: L, oppPit: L } };
+    });
   }
   // KBO 3연전 일정: 10개 팀 라운드로빈(원형 방식), 한 주 = 화~목, 금~일 두 시리즈
   function roundPairs(r) {
@@ -848,6 +906,78 @@ const Game = (() => {
   }
   function addStats(dst, src) { if (!src) return; Object.keys(src).forEach((k) => { if (typeof src[k] === 'number' && k in dst) dst[k] += src[k]; }); }
 
+  // ---------- 실제 선수 명단 (브라우저에만 저장) ----------
+  const ROSTER_KEY = 'baseballLife.roster';
+  let RO = null;
+  function teamIdOf(label) {
+    const l = label.replace(/\s+/g, '').toLowerCase();
+    const all = KBO_TEAMS.concat(MLB_TEAMS);
+    const hit = all.find((t) => t.id.toLowerCase() === l || t.name.replace(/\s+/g, '').toLowerCase() === l || (t.short && t.short.toLowerCase() === l));
+    if (hit) return hit.id;
+    const part = all.find((t) => t.name.replace(/\s+/g, '').toLowerCase().includes(l) || l.includes(t.name.replace(/\s+/g, '').toLowerCase()));
+    return part ? part.id : null;
+  }
+  function parseRoster(txt) {
+    const map = {}, bad = [];
+    let cur = null;
+    String(txt || '').split(/\r?\n/).forEach((line) => {
+      const l = line.trim();
+      if (!l || l.startsWith('//')) return;
+      let m = l.match(/^\[(.+)\]$/) || l.match(/^#+\s*(.+)$/);
+      if (m) { cur = teamIdOf(m[1]); if (!cur) bad.push(m[1].trim()); else map[cur] = map[cur] || { P: [], B: [] }; return; }
+      m = l.match(/^(투수|타자|야수|P|B)\s*[:：]\s*(.+)$/i);
+      if (!m || !cur) return;
+      const type = /^(투수|p)$/i.test(m[1]) ? 'P' : 'B';
+      m[2].split(/[,，、]/).forEach((x) => {
+        const v = x.trim();
+        if (!v) return;
+        const mm = v.match(/^(.+?)\s*\((\d{4})\)$/);
+        map[cur][type].push(mm ? { n: mm[1].trim(), by: +mm[2] } : { n: v });
+      });
+    });
+    return { map, bad };
+  }
+  function rosterText() { try { return localStorage.getItem(ROSTER_KEY) || ''; } catch (e) { return ''; } }
+  function loadRoster() { RO = parseRoster(rosterText()).map; return RO; }
+  function rosterStats(map) {
+    const teams = Object.keys(map).length;
+    let players = 0;
+    Object.values(map).forEach((t) => (players += t.P.length + t.B.length));
+    return { teams, players };
+  }
+  function setRoster(txt) {
+    const r = parseRoster(txt);
+    try { if (String(txt).trim()) localStorage.setItem(ROSTER_KEY, txt); else localStorage.removeItem(ROSTER_KEY); } catch (e) { /* */ }
+    RO = r.map;
+    return Object.assign(rosterStats(r.map), { bad: r.bad });
+  }
+  function rosterInfo() { return rosterStats(RO || loadRoster()); }
+  // 은퇴 처리: 출생연도가 있으면 만 40세(최소 2027년)까지만 등장
+  function rosterPool(id, type) {
+    const t = (RO || loadRoster())[id];
+    if (!t) return [];
+    const y = S ? S.year : 2026;
+    return t[type].filter((p) => !p.by || y <= Math.max(p.by + 40, 2027));
+  }
+  function rosterName(id, type, k) {
+    const pool = rosterPool(id, type);
+    if (!pool.length) return null;
+    const n = type === 'P' ? Math.min(5, pool.length) : pool.length;
+    return pool[((k % n) + n) % n].n;
+  }
+  function oppStarter(g, i) {
+    if (!g.opp || !g.opp.id) return null;
+    if (!(S.level === 'KBO1' || S.level === 'MLB' || g.kind === 'post' || g.kind === 'exh')) return null;
+    return rosterName(g.opp.id, 'P', S.year * 7 + S.week * 2 + i);
+  }
+  function rosterStar(lg, type) {
+    const ids = (lg === 'KBO' ? KBO_TEAMS : MLB_TEAMS).map((t) => t.id).filter((id) => id !== S.team && rosterPool(id, type).length);
+    if (!ids.length) return null;
+    const id = pick(ids);
+    const pool = rosterPool(id, type).slice(0, 4);
+    return `${pick(pool).n}(${teamInfo(id).short || teamInfo(id).name})`;
+  }
+
   // ---------- 직접 플레이 설정 ----------
   function makeOppPitcher(L, name) {
     const ph = shuffle(PITCH_ORDER.slice(0, 6)).slice(0, ri(2, 4));
@@ -977,7 +1107,7 @@ const Game = (() => {
   // ---------- 주간 마무리 ----------
   function finishWeek() {
     const W = S.wk;
-    const rep = { title: dateStr(), anim: W.anim, dateNarr: W.dateNarr, lines: [], gains: W.gains || [], games: [], dateLine: W.dateLine, dateHid: W.dateHid, events: [] };
+    const rep = { title: dateStr(), period: period(), anim: W.anim, dateNarr: W.dateNarr, lines: [], gains: W.gains || [], games: [], dateLine: W.dateLine, dateHid: W.dateHid, events: [] };
     const weekStats = blankStats();
     // 경기 처리
     if (W.games && W.games.length) {
@@ -992,9 +1122,10 @@ const Game = (() => {
           else r = simGame(g);
           addStats(weekStats, r.bat); addStats(weekStats, r.pit);
           g.res = r;
-          rep.games.push({ label: g.ser ? `${g.label}` : g.label, win: r.win, ours: r.ours, theirs: r.theirs, key: !!g.key, title: g.key ? g.title : null, ser: g.ser || null, gi: i, me: gameLine(r) });
+          rep.games.push({ label: g.ser ? `${g.label}` : g.label, sp: oppStarter(g, i), win: r.win, ours: r.ours, theirs: r.theirs, key: !!g.key, title: g.key ? g.title : null, ser: g.ser || null, gi: i, me: gameLine(r) });
           if (amateur()) afterHSGame(g, r, rep);
           else {
+            if (W.exh) return;
             if (r.win) S.teamRec.w++; else S.teamRec.l++;
             if (S.phase === 'KBO') { const tr = S.teams[S.team]; if (S.level === 'KBO1') { const ot = g.opp && S.teams[g.opp.id]; if (r.win) { tr.w++; if (ot) ot.l++; } else { tr.l++; if (ot) ot.w++; } } }
           }
@@ -1003,7 +1134,7 @@ const Game = (() => {
         rep.series = seriesSummary(rep.games);
         rep.series.forEach((x) => { if (x.tag === '스윕') { S.mental = clamp(S.mental + 3, 0, 100); } else if (x.tag === '스윕패') S.mental = clamp(S.mental - 3, 0, 100); });
       }
-      if (!W.postMode) addStats(S.st, weekStats);
+      if (!W.postMode && !W.exh) addStats(S.st, weekStats);
       const pg = weekStats.G || weekStats.PG;
       if (!amateur()) { S.levelWeeks++; if (S.level === 'KBO1' || S.level === 'MLB') S.topWeeks++; }
       // 피로 & 인기
@@ -1013,7 +1144,7 @@ const Game = (() => {
       S.fame = clamp(S.fame + top + weekStats.HR * 0.25 + weekStats.W * 0.4 + weekStats.SV * 0.15, 0, 100);
       rep.week = weekStats; rep.played = pg;
       S.recent.push(perfScore(weekStats)); if (S.recent.length > 6) S.recent.shift();
-      if (!amateur() && pg) S.trust = clamp(S.trust + clamp(perfScore(weekStats) * 0.8, -2, 3), 0, 100);
+      if (!amateur() && pg && !W.exh) S.trust = clamp(S.trust + clamp(perfScore(weekStats) * 0.8, -2, 3), 0, 100);
       // 경기 중 성장 (실전 경험)
       if (pg) {
         if (isBatter() && weekStats.PA) { growAttr(pick(['con', 'eye', 'pow']), 0.12 * ageMult()); }
@@ -1306,8 +1437,25 @@ const Game = (() => {
     S.flags.proYear = S.year; S.lvlSince = S.stats.weeks;
   }
 
+  const PERIOD_MSG = {
+    camp: '스프링캠프가 시작됐어요. 경기 없이 훈련에 집중하는 기간이라 훈련 효과가 1.3배예요.',
+    pre: '시범경기가 시작됐어요. 주 2경기를 치르지만 기록에는 남지 않아요. 개막 엔트리 경쟁이 한창이에요.',
+    finish: '시즌이 끝나고 마무리 훈련에 들어갔어요. 경기는 없고 훈련 효과가 1.1배예요.',
+    off: '스토브리그가 시작됐어요. 경기가 없어 푹 쉬기 좋고, 광고 촬영도 부담 없이 할 수 있어요. 연봉 협상과 FA도 이 기간에 열려요.',
+    winter: '동계훈련 기간이에요. 대회가 없고 훈련 효과가 1.15배예요.',
+    season: '새 시즌이 시작됐어요. 주말마다 경기가 열리고 대회가 이어져요.',
+  };
+  function periodChange() {
+    const k = periodKey();
+    if (S.lastPeriod && S.lastPeriod !== k && PERIOD_MSG[k]) {
+      const P = period();
+      S.pending.push({ type: 'msg', data: { title: P.name, icon: 'cal', text: PERIOD_MSG[k] } });
+    }
+    S.lastPeriod = k;
+  }
   function weeklyChecks(rep) {
     const w = S.week;
+    periodChange();
     if (amateur()) return hsChecks(w);
     if (S.phase === 'RETIRED') return;
     if (S.phase === 'INDY') indyChecks(w);
@@ -1327,8 +1475,8 @@ const Game = (() => {
     if (w === c.fa && !S.flags['fa' + S.year]) { S.flags['fa' + S.year] = true; contractCheck(); }
     if (w === c.nego && S.contract && S.contract.kind === 'annual' && !S.flags['nego' + S.year] && S.year !== S.flags.proYear) negotiation();
     if (w === c.nego && S.contract && S.contract.kind === 'milb' && S.mlbService >= 1 && !S.flags['nego' + S.year]) mlbSalary();
+    if (S.phase === 'KBO' || S.phase === 'MLB') moveChecks(w, c);
     if (w === c.retire && S.age >= 35) S.pending.push({ type: 'retireAsk', data: {} });
-    if (w === c.camp[0]) S.pending.push({ type: 'msg', data: { title: '스프링캠프', icon: 'train', text: '스프링캠프 시작! 이번 달은 훈련 효과가 1.3배입니다.' } });
     // 계약 만료 후 강제 은퇴 조건
     if (w === c.retire && (S.age >= 42 || (S.age >= 34 && ovr() < 44))) S.pending.push({ type: 'forcedRetire', data: {} });
     heroineChecks();
@@ -1337,7 +1485,7 @@ const Game = (() => {
     if (w % 4 === 0) Object.entries(S.rel).forEach(([id, r]) => { if (S.stats.weeks - (S.lastDate[id] || 0) > 8 && r.aff > 5) r.aff = Math.max(0, r.aff - 2); });
     if (S.partner && S.rel[S.partner].aff < 35 && !S.spouse) {
       S.pending.push({ type: 'breakup', data: { hid: S.partner } });
-    }
+    } else loveChecks();
   }
   function indyChecks(w) {
     const c = SEASON.INDY;
@@ -1502,6 +1650,10 @@ const Game = (() => {
     S.lastWar = w;
     if (S.phase === 'KBO' && S.topWeeks >= 14) { S.service++; addLog(`KBO 1군 등록 ${S.service}시즌 채움`); }
     if (S.phase === 'MLB' && S.topWeeks >= 15) { S.mlbService++; addLog(`메이저리그 서비스 타임 ${S.mlbService}년`); }
+    if (S.contract && S.contract.optAmt && (S.level === 'KBO1' || S.level === 'MLB')) {
+      if (w >= S.contract.optWar) { S.money += S.contract.optAmt; S.pending.push({ type: 'msg', data: { title: '옵션 달성!', icon: 'coin', text: `WAR ${w}로 계약 옵션(WAR ${S.contract.optWar} 이상)을 채웠다.\n보너스 ${won(S.contract.optAmt)} 지급!` } }); }
+      else S.pending.push({ type: 'msg', data: { title: '옵션 미달', icon: 'chart', text: `WAR ${w}. 옵션 기준(WAR ${S.contract.optWar})에 못 미쳐 보너스 ${won(S.contract.optAmt)}을 놓쳤다.` } });
+    }
     if (S.contract && S.contract.years) S.contract.years--;
     if (S.phase === 'INDY') S.career[S.career.length - 1].lg = null;
   }
@@ -1537,10 +1689,15 @@ const Game = (() => {
       got.forEach((a) => S.awards.push(`${S.year} ${lg === 'KBO' ? 'KBO' : 'MLB'} ${a}`));
       S.fame = clamp(S.fame + got.length * 5, 0, 100);
       S.mental = clamp(S.mental + 10, 0, 100);
-      S.pending.push({ type: 'msg', data: { title: `${S.year} 시상식`, icon: 'trophy', text: `수상: ${got.join(', ')}!\n\n시즌 WAR ${w}` } });
+      S.pending.push({ type: 'msg', data: { title: `${S.year} 시상식`, icon: 'trophy', text: `수상: ${got.join(', ')}!\n\n시즌 WAR ${w}${otherMvp()}` } });
       addLog(`시상식: ${got.join(', ')}`);
     } else {
-      S.pending.push({ type: 'msg', data: { title: `${S.year} 시즌 결산`, icon: 'chart', text: seasonSummary(t) + `\nWAR ${w}` } });
+      S.pending.push({ type: 'msg', data: { title: `${S.year} 시즌 결산`, icon: 'chart', text: seasonSummary(t) + `\nWAR ${w}` + otherMvp() } });
+    }
+    function otherMvp() {
+      if (got.some((a) => /MVP/.test(a))) return '';
+      const who = rosterStar(lg, chance(0.7) ? 'B' : 'P');
+      return who ? `\n\n올해 ${lg === 'KBO' ? '정규시즌 ' : ''}MVP는 ${who}에게 돌아갔다.` : '';
     }
   }
   function seasonSummary(t) {
@@ -1560,8 +1717,10 @@ const Game = (() => {
     if (!c) return;
     if (S.phase === 'KBO') {
       if ((c.kind === 'annual' && S.service >= 7) || (c.kind === 'multi' && c.years <= 0)) S.pending.push({ type: 'fa', data: { offers: faOffers() } });
+      else if (S.flags.postYear === S.year) postingStart();
     } else {
       if ((c.kind === 'milb' && S.mlbService >= 6) || (c.kind === 'mlb' && c.years <= 0)) S.pending.push({ type: 'fa', data: { offers: faOffers() } });
+      else if (c.kind === 'mlb' && c.optout && !c.optUsed && c.years > 0 && (c.yearsTotal - c.years) >= c.optout) S.pending.push({ type: 'optout', data: { left: c.years } });
     }
   }
   function faOffers() {
@@ -1572,14 +1731,14 @@ const Game = (() => {
     kboTeams.slice(0, 3).forEach((t, i) => {
       const total = Math.max(5, 8 + (o - 55) * 4.2) * 1e8 * ageF * rnd(0.9, 1.15) * (i === 0 && S.phase === 'KBO' ? 0.95 : 1);
       const years = S.age >= 33 ? 2 : S.age >= 30 ? 3 : 4;
-      out.push({ lg: 'KBO', team: t.id, years, total: Math.round(total / 1e7) * 1e7, bonus: Math.round(total * 0.35 / 1e7) * 1e7 });
+      out.push({ lg: 'KBO', team: t.id, years, total: Math.round(total / 1e7) * 1e7, bonus: Math.round(total * 0.35 / 1e7) * 1e7, interest: offerInterest(t.id) });
     });
     if (o >= 66) {
       const n = o >= 82 ? 3 : o >= 74 ? 2 : 1;
       shuffle(MLB_TEAMS).slice(0, n).forEach((t) => {
         const aav = Math.max(1.5, (o - 64) * 2.3) * 1e6 * ageF * rnd(0.85, 1.2);
         const years = S.age >= 33 ? 1 : o >= 85 ? ri(5, 8) : o >= 78 ? ri(3, 5) : ri(1, 2);
-        out.push({ lg: 'MLB', team: t.id, years, aav: Math.round(aav / 1e5) * 1e5 });
+        out.push({ lg: 'MLB', team: t.id, years, aav: Math.round(aav / 1e5) * 1e5, interest: offerInterest(t.id) });
       });
     }
     if (S.flags.agent) out.forEach((x) => { if (x.total) { x.total = Math.round(x.total * 1.08 / 1e7) * 1e7; x.bonus = Math.round(x.bonus * 1.08 / 1e7) * 1e7; } if (x.aav) x.aav = Math.round(x.aav * 1.08 / 1e5) * 1e5; });
@@ -1592,13 +1751,13 @@ const Game = (() => {
       S.money += off.bonus;
       if (S.phase !== 'KBO') { S.phase = 'KBO'; S.teams = {}; ensureTeams(); }
       S.team = off.team; S.level = 'KBO1';
-      S.contract = { kind: 'multi', lg: 'KBO', salary, years: off.years, total: off.total };
-      addLog(`${teamInfo(off.team).name}와 ${off.years}년 총액 ${won(off.total)} FA 계약!`);
+      S.contract = { kind: 'multi', lg: 'KBO', salary, years: off.years, yearsTotal: off.years, total: off.total, optAmt: off.optAmt || 0, optWar: off.optAmt ? 2.5 : 0, post: !!off.post, ntc: !!off.ntc };
+      addLog(`${teamInfo(off.team).name}와 ${off.years}년 총액 ${won(off.total + (off.optAmt || 0) * off.years)} FA 계약!${clauseText(off) ? ` (${clauseText(off)})` : ''}`);
     } else {
       const firstMLB = S.phase !== 'MLB';
       S.phase = 'MLB'; S.team = off.team; S.level = 'MLB'; S.teamStr = rnd(63, 71);
-      S.contract = { kind: 'mlb', lg: 'MLB', salary: off.aav * USD, years: off.years, total: off.aav * off.years };
-      addLog(`${teamInfo(off.team).name}와 ${off.years}년 ${usd(off.aav * off.years)} 계약!`);
+      S.contract = { kind: 'mlb', lg: 'MLB', salary: off.aav * USD, years: off.years, yearsTotal: off.years, total: off.aav * off.years, optAmt: (off.optAmt || 0) * USD, optWar: off.optAmt ? 2 : 0, ntc: !!off.ntc, optout: off.optout ? 2 : 0 };
+      addLog(`${teamInfo(off.team).name}와 ${off.years}년 ${usd((off.aav + (off.optAmt || 0)) * off.years)} 계약!${clauseText(off) ? ` (${clauseText(off)})` : ''}`);
       if (firstMLB) S.flags.mlbDebut = false;
     }
     S.fame = clamp(S.fame + 6, 0, 100);
@@ -1625,6 +1784,174 @@ const Game = (() => {
     }
   }
 
+  // ---------- 트레이드 / 포스팅 / FA 협상 ----------
+  const TRADE_DL = { KBO: 26, MLB: 30 };
+  function clauseText(o) {
+    const t = [];
+    if (o.optAmt) t.push(`옵션 연 ${o.lg === 'MLB' ? usd(o.optAmt) : won(o.optAmt)}`);
+    if (o.post) t.push('해외 진출 허용');
+    if (o.ntc) t.push('트레이드 거부권');
+    if (o.optout) t.push('2년 후 옵트아웃');
+    return t.join(', ');
+  }
+  function offerInterest(team) {
+    const o = ovr();
+    return Math.round(clamp(48 + (o - 62) * 1.6 + rnd(-10, 10) + (team === S.team ? 8 : 0) - (S.age >= 33 ? 10 : 0) + (S.flags.agent ? 6 : 0), 20, 95));
+  }
+  function requestState() {
+    const st = { trade: null, post: null, postShow: S.phase === 'KBO' };
+    if (S.phase !== 'KBO' && S.phase !== 'MLB') { st.trade = '프로 구단 소속일 때만 할 수 있어요'; st.post = st.trade; return st; }
+    const c = seasonCfg(), w = S.week, dl = TRADE_DL[S.phase];
+    if (S.flags['treq' + S.year]) st.trade = '올해는 이미 요청했어요';
+    else if (S.flags.tradeWait) st.trade = '구단이 트레이드 상대를 찾는 중이에요';
+    else if (w < c.reg[0] || w > dl) st.trade = `정규시즌 개막부터 트레이드 마감(${monthOf(dl)}월 ${(dl % 4) + 1}주)까지만 가능해요`;
+    if (S.phase === 'KBO') {
+      if (S.flags['preq' + S.year]) st.post = S.flags.postYear === S.year ? '승인됐어요. 시즌이 끝나면 포스팅이 시작돼요' : '올해는 이미 거절당했어요';
+      else if (S.service < 5 && !(S.contract && S.contract.post)) st.post = `1군 5시즌을 채워야 해요 (지금 ${S.service}시즌)`;
+      else if (S.contract && S.contract.kind === 'annual' && S.service >= 7) st.post = 'FA 자격이 있어서 FA로 바로 나갈 수 있어요';
+      else if (w >= c.fa) st.post = '올해 신청 기간이 지났어요';
+    }
+    return st;
+  }
+  function requestTrade() {
+    S.flags['treq' + S.year] = true;
+    S.trust = clamp(S.trust - 18, 0, 100); S.mental = clamp(S.mental - 3, 0, 100);
+    S.flags.tradeWait = S.stats.weeks + ri(1, 2);
+    addLog('구단에 트레이드를 요청했다.');
+    save();
+    return '구단에 정식으로 트레이드를 요청했다. 감독님 표정이 굳었다.\n1~2주 안에 답이 올 거예요. (감독 신뢰 -18)';
+  }
+  function requestPosting() {
+    S.flags['preq' + S.year] = true;
+    const clause = S.contract && S.contract.post;
+    const p = clause ? 1 : clamp(0.22 + (S.trust - 50) / 120 + (S.service >= 6 ? 0.15 : 0) + S.fame / 300 + (ovr() >= 72 ? 0.1 : 0), 0.08, 0.88);
+    if (chance(p)) {
+      S.flags.postYear = S.year; S.trust = clamp(S.trust - 5, 0, 100);
+      addLog('구단이 포스팅을 허락했다.');
+      save();
+      return { ok: true, text: clause ? '계약서의 해외 진출 허용 조항대로 구단이 바로 포스팅을 승인했다.\n시즌이 끝나면 메이저리그 구단들의 응찰이 시작돼요.' : '단장실에 다녀왔다. "네 꿈이라면 막지 않겠다."\n시즌이 끝나면 포스팅이 시작돼요. (감독 신뢰 -5)' };
+    }
+    S.trust = clamp(S.trust - 12, 0, 100); S.mental = clamp(S.mental - 6, 0, 100);
+    save();
+    return { ok: false, text: '"아직은 우리 팀에 네가 필요하다." 구단이 포스팅을 거절했다.\n내년에 다시 요청할 수 있어요. (감독 신뢰 -12, 멘탈 -6)' };
+  }
+  function tradeTargets(n) {
+    const pool = (S.phase === 'MLB' ? MLB_TEAMS : KBO_TEAMS).filter((t) => t.id !== S.team);
+    return shuffle(pool).slice(0, n).map((t) => t.id);
+  }
+  function doTrade(id) {
+    const from = teamInfo(S.team).name;
+    S.team = id; S.trust = 55; S.lvlSince = S.stats.weeks; S.fame = clamp(S.fame + 2, 0, 100); S.mental = clamp(S.mental + 4, 0, 100);
+    if (S.phase === 'KBO' && S.level === 'KBO2' && ovr() >= 57) S.level = 'KBO1';
+    S.mlbSeries = null;
+    S.flags.tradedYear = S.year;
+    addLog(`${from}에서 ${teamInfo(id).name}(으)로 트레이드됐다.`);
+  }
+  const TRADE_NOTES = ['주전 기회 보장', '우승 도전 팀', '리빌딩의 중심', '감독이 직접 원함', '홈구장이 타자 친화적', '투수 코치진이 좋음'];
+  function moveChecks(w, c) {
+    if (S.flags.tradeWait && S.stats.weeks >= S.flags.tradeWait) {
+      S.flags.tradeWait = null;
+      const bench = /벤치|백업|대타|롱릴리프|추격조|2군/.test(roleLabel());
+      const p = clamp(0.32 + (60 - S.trust) / 120 + (bench ? 0.2 : 0) + (ovr() - 60) * 0.01, 0.15, 0.85);
+      if (chance(p)) {
+        const ids = tradeTargets(ri(2, 3));
+        const notes = shuffle(TRADE_NOTES);
+        S.pending.push({ type: 'trade', data: { offers: ids.map((id, i) => ({ team: id, note: notes[i] })) } });
+      } else {
+        S.trust = clamp(S.trust - 8, 0, 100); S.mental = clamp(S.mental - 6, 0, 100);
+        S.pending.push({ type: 'msg', data: { title: '트레이드 불발', icon: 'chart', text: '구단이 몇 팀과 이야기를 나눴지만 조건이 맞지 않았다.\n어색한 분위기 속에서 시즌을 이어가야 한다. (감독 신뢰 -8, 멘탈 -6)' } });
+      }
+      return;
+    }
+    // 구단이 먼저 트레이드를 통보하는 경우
+    const dl = TRADE_DL[S.phase];
+    if (w > c.reg[0] + 2 && w <= dl && S.trust < 28 && S.flags.tradedYear !== S.year && !S.flags['treq' + S.year] && chance(0.07)) {
+      S.flags.tradedYear = S.year;
+      S.pending.push({ type: 'traded', data: { team: tradeTargets(1)[0], ntc: !!(S.contract && S.contract.ntc) } });
+    }
+  }
+  function postingStart() {
+    const o = ovr();
+    const out = [];
+    if (o >= 61) {
+      const n = o >= 80 ? 4 : o >= 72 ? 3 : o >= 66 ? 2 : 1;
+      shuffle(MLB_TEAMS).slice(0, n).forEach((t) => {
+        const aav = Math.max(0.8, (o - 60) * 1.15) * 1e6 * rnd(0.85, 1.2) * (S.age <= 26 ? 1.15 : 1);
+        const years = o >= 80 ? ri(4, 6) : o >= 72 ? ri(2, 4) : ri(1, 2);
+        out.push({ lg: 'MLB', team: t.id, years, aav: Math.round(aav / 1e5) * 1e5, interest: offerInterest(t.id) });
+      });
+      if (S.flags.agent) out.forEach((x) => (x.aav = Math.round(x.aav * 1.08 / 1e5) * 1e5));
+    }
+    if (!out.length) { S.mental = clamp(S.mental - 10, 0, 100); S.flags.postYear = null; S.pending.push({ type: 'msg', data: { title: '포스팅 무응찰', icon: 'chart', text: '30일의 협상 기간이 끝났다. 응찰한 구단은 없었다.\n내년에 더 성장해서 다시 도전하자. (멘탈 -10)' } }); return; }
+    S.pending.push({ type: 'posting', data: { offers: out } });
+  }
+  // 협상 요구: { money: 0|10|20, years: -1|0|1, opt, bonus, post, ntc, optout }
+  function demandCost(off, dm) {
+    let c = dm.money * 1.2;
+    if (dm.years > 0) c += S.age >= 31 ? 16 : 5;
+    if (dm.years < 0) c += S.age >= 31 ? -4 : 6;
+    if (dm.bonus) c += 6;
+    if (dm.post) c += ovr() >= 72 ? 12 : 20;
+    if (dm.ntc) c += 8;
+    if (dm.optout) c += 12;
+    if (dm.opt) c -= 8;
+    return c;
+  }
+  function negoChance(off, dm) {
+    const slack = (off.interest - 50) * 0.55;
+    return clamp(0.92 - (demandCost(off, dm) - slack) / 38, 0.04, 0.95);
+  }
+  function applyDemand(off, dm) {
+    const base = off.base || off;
+    const n = Object.assign({}, base);
+    const k = 1 + dm.money / 100;
+    n.years = clamp(base.years + dm.years, 1, 8);
+    const yk = n.years / base.years;
+    if (base.lg === 'KBO') {
+      let total = base.total * k * (dm.years ? (1 + (yk - 1) * 0.8) : 1);
+      if (dm.opt) { total *= 1.15; n.optAmt = Math.round(total * 0.3 / n.years / 1e7) * 1e7; total *= 0.7; } else n.optAmt = 0;
+      n.total = Math.round(total / 1e7) * 1e7;
+      n.bonus = Math.round(n.total * (dm.bonus ? 0.5 : 0.35) / 1e7) * 1e7;
+      n.post = !!dm.post; n.ntc = !!dm.ntc;
+    } else {
+      let aav = base.aav * k * (dm.years > 0 ? 0.97 : dm.years < 0 ? 1.04 : 1);
+      if (dm.opt) { aav *= 1.15; n.optAmt = Math.round(aav * 0.3 / 1e5) * 1e5; aav *= 0.7; } else n.optAmt = 0;
+      n.aav = Math.round(aav / 1e5) * 1e5;
+      n.ntc = !!dm.ntc; n.optout = !!dm.optout && n.years >= 3;
+    }
+    n.base = base; n.dm = Object.assign({}, dm);
+    return n;
+  }
+  function fallbackOffer() {
+    const o = ovr();
+    if (S.phase === 'MLB') return { lg: 'MLB', team: pick(MLB_TEAMS).id, years: 1, aav: Math.round(Math.max(0.8, (o - 62) * 1.2) * 1e6 / 1e5) * 1e5, interest: 50, rounds: 3 };
+    const total = Math.round(Math.max(3, 5 + (o - 55) * 2.5) * 1e8 / 1e7) * 1e7;
+    return { lg: 'KBO', team: S.phase === 'KBO' ? S.team : pick(KBO_TEAMS).id, years: 1, total, bonus: Math.round(total * 0.3 / 1e7) * 1e7, interest: 50, rounds: 3 };
+  }
+  function negotiate(off, dm) {
+    off.rounds = (off.rounds || 0) + 1;
+    const p = negoChance(off, dm);
+    const keep = { interest: off.interest, rounds: off.rounds };
+    if (chance(p)) return { res: 'accept', offer: Object.assign(applyDemand(off, dm), keep, { agreed: true }) };
+    off.interest = Math.max(10, off.interest - 7);
+    keep.interest = off.interest;
+    if (off.rounds < 3 && chance(0.65)) {
+      const c = Object.assign({}, dm);
+      let why;
+      if (c.post) { c.post = false; why = '해외 진출 조항은 넣기 어렵다'; }
+      else if (c.optout) { c.optout = false; why = '옵트아웃은 곤란하다'; }
+      else if (c.money >= 10) { c.money -= 10; why = '금액을 조금만 낮추자'; }
+      else if (c.years > 0) { c.years = 0; why = '기간은 처음 제안대로 하자'; }
+      else if (c.ntc) { c.ntc = false; why = '거부권은 줄 수 없다'; }
+      else if (c.bonus) { c.bonus = false; why = '계약금 비중은 원래대로 하자'; }
+      else if (!c.opt) { c.opt = true; why = '옵션을 섞으면 받아들이겠다'; }
+      else { c.years = 0; c.money = 0; why = '처음 조건에 옵션을 붙이는 선에서 하자'; }
+      return { res: 'counter', offer: Object.assign(applyDemand(off, c), keep, { agreed: true }), why };
+    }
+    if (off.rounds >= 2 && chance(0.5)) return { res: 'walk' };
+    return { res: 'reject' };
+  }
+
   // ---------- 연애 ----------
   function heroineChecks() {
     if (S.phase === 'HS' || S.phase === 'RETIRED') return;
@@ -1637,10 +1964,13 @@ const Game = (() => {
   }
   function relStage(aff, id) {
     if (S.spouse === id) return 6;
+    if (S.secret && S.secret[id]) return 7;
     if (S.partner === id) return S.engaged ? 5 : 4;
     if (aff >= 50) return 3; if (aff >= 20) return 2; return 1;
   }
-  const STAGE_NAME = ['', '아는 사이', '친구', '썸', '연인', '약혼', '부부'];
+  const STAGE_NAME = ['', '아는 사이', '친구', '썸', '연인', '약혼', '부부', '비밀 연인'];
+  function mainLove() { return S.spouse || S.partner || null; }
+  function cheating(id) { const m = mainLove(); return !!m && m !== id; }
   function heroLine(h) {
     const st = relStage(S.rel[h.id].aff, h.id);
     const tier = st >= 4 ? 3 : st >= 3 ? 2 : st >= 2 ? 1 : 0;
@@ -1668,7 +1998,6 @@ const Game = (() => {
     return { text: pick(R), gain: g, like };
   }
   function dateBlocked(id) {
-    if ((S.spouse && S.spouse !== id) || (S.partner && S.partner !== id)) return '연인이 있어요';
     return null;
   }
   function doDate(id, placeId) {
@@ -1678,17 +2007,30 @@ const Game = (() => {
     const car = S.car ? CARS.find((x) => x.id === S.car).date : 0;
     let g = pl.aff * (h.fav === pl.id ? 1.5 : 1) * (1 + car * 0.04) * rnd(0.85, 1.2) + S.fame * 0.02;
     g = Math.round(g);
+    const before = S.rel[id].aff;
     S.rel[id].aff = clamp(S.rel[id].aff + g, 0, 100);
     S.lastDate[id] = S.stats.weeks;
+    const risk = cheating(id) ? dateRisk(pl) : 0;
+    const tail = [];
+    if (risk) { S.sus = clamp(S.sus + risk, 0, 100); S.lastCheat = id; tail.push(`들킬 위험 +${risk}`); const m = mainLove(); S.rel[m].aff = clamp(S.rel[m].aff - 2, 0, 100); }
     if (pl.special) {
-      S.fat = clamp(S.fat + 35, 0, 100);
-      S.mental = clamp(S.mental + 25, 0, 100);
-      return { gains: [`${h.name} 호감도 +${g}`, '피로 +35', '멘탈 +25'], place: pl.name, line: pick(NIGHT_LINES), narr: true };
+      S.fat = clamp(S.fat + pl.fat, 0, 100);
+      S.mental = clamp(S.mental + pl.mental, 0, 100);
+      S.flags.kiss = S.flags.kiss || {}; S.flags.kiss[id] = true;
+      const lines = (HERO_NIGHT[id] || []).concat(NIGHT_LINES);
+      const line = chance(0.7) && HERO_NIGHT[id] ? pick(HERO_NIGHT[id]) : pick(lines);
+      return { gains: [`${h.name} 호감도 +${g}`, `피로 +${pl.fat}`, `멘탈 +${pl.mental}`].concat(tail), place: pl.name, line, narr: true };
     }
     S.fat = clamp(S.fat - pl.cond, 0, 100);
     S.mental = clamp(S.mental + 5, 0, 100);
-    const gains = [`${h.name} 호감도 +${g}`, `피로 -${pl.cond}`, '멘탈 +5'];
+    const gains = [`${h.name} 호감도 +${g}`, `피로 -${pl.cond}`, '멘탈 +5'].concat(tail);
     if (h.fav === pl.id) gains.unshift('좋아하는 장소! 반응이 아주 좋다');
+    S.flags.kiss = S.flags.kiss || {};
+    if (!S.flags.kiss[id] && S.rel[id].aff >= 50 && FIRST_KISS[id]) {
+      S.flags.kiss[id] = true; S.mental = clamp(S.mental + 8, 0, 100);
+      gains.unshift('첫 키스'); 
+      return { gains, place: pl.name, line: FIRST_KISS[id], narr: true };
+    }
     return { gains, place: pl.name, line: heroLine(h) };
   }
   function gift(id, giftId) {
@@ -1705,8 +2047,10 @@ const Game = (() => {
     const car = S.car ? CARS.find((x) => x.id === S.car).date : 0;
     const p = clamp((r.aff - 60) / 40 + S.fame * 0.002 + car * 0.01, 0.1, 0.95);
     if (chance(p)) {
-      S.partner = id; r.aff = clamp(r.aff + 5, 0, 100);
+      r.aff = clamp(r.aff + 5, 0, 100);
       S.mental = clamp(S.mental + 15, 0, 100);
+      if (cheating(id)) { S.secret[id] = true; S.sus = clamp(S.sus + 10, 0, 100); S.lastCheat = id; addLog(`${HEROINES.find((x) => x.id === id).name}와 몰래 만나기 시작했다.`); save(); return true; }
+      S.partner = id;
       addLog(`${HEROINES.find((x) => x.id === id).name}와 연인이 되었다!`);
       save();
       return true;
@@ -1732,6 +2076,123 @@ const Game = (() => {
       save(); return true;
     }
     S.rel[id].aff -= 8; save(); return false;
+  }
+
+  // ---------- 바람 / 연애 이벤트 ----------
+  function dateRisk(pl) {
+    const loud = { park: 6, river: 4, trip: 8, dining: 3, hotel: -5 }[pl.id] || 0;
+    const car = S.car ? 3 : 0;
+    return Math.round(clamp(6 + loud + (pl.special ? 8 : 0) + S.fame * 0.12 - car, 3, 35));
+  }
+  function secrets() { return Object.keys(S.secret || {}).filter((k) => S.secret[k]); }
+  function endMain(why) {
+    const m = mainLove();
+    if (!m) return [];
+    const h = HEROINES.find((x) => x.id === m);
+    const out = [];
+    if (S.spouse === m) {
+      const cost = Math.round(S.money * 0.3 / 1e6) * 1e6;
+      S.money -= cost; S.spouse = null; S.fame = clamp(S.fame - 10, 0, 100); S.mental = clamp(S.mental - 30, 0, 100);
+      out.push(`이혼 · 위자료 ${won(cost)}`, '인기 -10', '멘탈 -30');
+      addLog(`${h.name}와 이혼했다. (${why})`);
+    } else {
+      S.mental = clamp(S.mental - 20, 0, 100); out.push('이별', '멘탈 -20');
+      addLog(`${h.name}와 헤어졌다. (${why})`);
+    }
+    S.partner = null; S.engaged = false; S.weddingWeek = null;
+    S.rel[m].aff = Math.min(S.rel[m].aff, 15);
+    return out;
+  }
+  function promoteLove(id) { delete S.secret[id]; S.partner = id; S.sus = 0; S.rel[id].aff = clamp(S.rel[id].aff + 8, 0, 100); }
+  function loveChecks() {
+    S.sus = Math.max(0, (S.sus || 0) - 3);
+    const sec = secrets();
+    sec.forEach((id) => { if (S.rel[id].aff < 25) { delete S.secret[id]; addLog(`${HEROINES.find((x) => x.id === id).name}와의 비밀 관계가 끝났다.`); } });
+    const m = mainLove();
+    const sec2 = secrets();
+    if (!m && sec2.length) { const id = sec2[0]; S.pending.push({ type: 'love', data: { ev: 'free', hid: id } }); return; }
+    if (S.flags.loveWk === S.stats.weeks) return;
+    const push = (d) => { S.flags.loveWk = S.stats.weeks; S.pending.push({ type: 'love', data: d }); };
+    if (m && sec2.length) {
+      const other = S.lastCheat && S.secret[S.lastCheat] ? S.lastCheat : sec2[0];
+      if (chance(S.sus / 260)) return push({ ev: 'caught', hid: m, other });
+      if (S.fame >= 45 && S.sus >= 30 && chance(0.07)) return push({ ev: 'scandal', hid: m, other });
+      const hot = sec2.find((id) => S.rel[id].aff >= 65);
+      if (hot && chance(0.07)) return push({ ev: 'choose', hid: hot });
+    }
+    if (!chance(0.13)) return;
+    const cands = [];
+    LOVE_EVENTS.forEach((e) => {
+      if (S.stats.weeks - (S.flags['lv_' + e.id] || -99) < 8) return;
+      if (e.fame && S.fame < e.fame) return;
+      let who = [];
+      if (e.who === 'main' && S.partner && !S.spouse) who = [S.partner];
+      else if (e.who === 'main' && S.spouse) who = e.id === 'public' ? [] : [S.spouse];
+      else if (e.who === 'spouse' && S.spouse) who = [S.spouse];
+      else if (e.who === 'secret') who = sec2;
+      else if (e.who === 'any') who = [m].concat(sec2).filter(Boolean);
+      who.filter((id) => !(e.id === 'public' && S.flags['pub_' + id])).forEach((id) => cands.push({ e, id }));
+    });
+    if (!cands.length) return;
+    const c = pick(cands);
+    S.flags['lv_' + c.e.id] = S.stats.weeks;
+    if (c.e.id === 'public') S.flags['pub_' + c.id] = true;
+    push({ ev: c.e.id, hid: c.id });
+  }
+  function loveInfo(d) {
+    const h = HEROINES.find((x) => x.id === d.hid);
+    const o = d.other ? HEROINES.find((x) => x.id === d.other) : null;
+    const wife = S.spouse === d.hid;
+    if (d.ev === 'caught') return { title: '들켰다', hid: d.hid, lines: [`어제 어디 있었어? 거짓말하지 마.`, `${o.name}. 맞지? 나 다 봤어.`, wife ? '우리 결혼까지 했잖아. 어떻게 나한테 이래?' : '어떻게 나한테 이럴 수 있어?'], opts: ['무릎 꿇고 싹싹 빈다', '끝까지 발뺌한다', `솔직하게, ${o.name}을(를) 택한다`] };
+    if (d.ev === 'scandal') return { title: '열애설 기사', hid: d.hid, news: `[단독] ${S.name}, 심야 데이트 포착… 상대는 ${HEROINES.find((x) => x.id === d.hid).name} 아닌 다른 여성?`, lines: ['기사 봤어. 이거 뭐야?'], opts: ['사실무근이라고 해명한다', '노코멘트로 버틴다'] };
+    if (d.ev === 'choose') { const m = HEROINES.find((x) => x.id === mainLove()); return { title: '선택해', hid: d.hid, lines: ['나 이제 숨어서 만나는 거 지쳤어.', `${m.name}이야, 나야? 오늘은 대답해 줘.`], opts: [`너를 택할게 (${m.name}와 정리)`, '조금만 더 기다려줘', '우리 여기서 그만하자'] }; }
+    if (d.ev === 'free') return { title: '이제 숨기지 않아도 돼', hid: d.hid, lines: ['소식 들었어.', '이제 우리… 숨어서 안 만나도 되는 거지?'], opts: ['응, 이제 정식으로 만나자', '당분간은 혼자 있고 싶어'] };
+    const e = LOVE_EVENTS.find((x) => x.id === d.ev);
+    return { title: e.title, hid: d.hid, lines: e.lines, opts: e.opts.map((x) => x.label) };
+  }
+  function resolveLove(d, choice) {
+    const info = loveInfo(d);
+    const h = HEROINES.find((x) => x.id === d.hid);
+    const r = S.rel[d.hid];
+    const out = [];
+    const aff = (id, v) => { S.rel[id].aff = clamp(S.rel[id].aff + v, 0, 100); out.push(`${HEROINES.find((x) => x.id === id).name} 호감 ${v > 0 ? '+' : ''}${v}`); };
+    let msg = '';
+    if (d.ev === 'caught') {
+      const o = HEROINES.find((x) => x.id === d.other);
+      if (choice === 0) {
+        aff(d.hid, -18); delete S.secret[d.other]; S.rel[d.other].aff = Math.min(S.rel[d.other].aff, 30); S.sus = 25; S.mental = clamp(S.mental - 10, 0, 100); out.push('멘탈 -10');
+        msg = `${h.name}은(는) 한참을 울다가 마지막 기회라고 했다.\n${o.name}에게는 끝내자는 문자를 보냈다. 답장은 오지 않았다.`;
+      } else if (choice === 1) {
+        if (chance(clamp(0.5 + S.mental / 400 - S.sus / 300, 0.15, 0.75))) { aff(d.hid, -5); S.sus = Math.max(0, S.sus - 30); msg = '"…알았어. 이번만 믿을게." 그녀가 등을 돌렸다. 식은땀이 났다.'; }
+        else { msg = `"끝까지 거짓말이네." 그녀가 휴대폰을 테이블에 내려놓았다. 화면에는 ${o.name}과(와) 찍힌 사진이 떠 있었다.`; out.push(...endMain('바람')); S.fame = clamp(S.fame - 5, 0, 100); out.push('인기 -5'); }
+      } else {
+        out.push(...endMain('다른 사람을 택함')); promoteLove(d.other);
+        msg = `${h.name}에게 모든 걸 털어놓았다. 뺨이 얼얼했다.\n그날 밤 ${o.name}에게 전화를 걸었다. "이제 숨지 않아도 돼."`;
+      }
+    } else if (d.ev === 'scandal') {
+      if (choice === 0) {
+        if (chance(0.55)) { S.fame = clamp(S.fame - 4, 0, 100); S.sus = clamp(S.sus + 10, 0, 100); out.push('인기 -4'); msg = '구단 홍보팀을 통해 "지인과의 식사"라고 해명했다. 일단은 넘어갔다.'; }
+        else { S.fame = clamp(S.fame - 14, 0, 100); S.trust = clamp(S.trust - 8, 0, 100); S.sus = 100; out.push('인기 -14', '감독 신뢰 -8'); msg = '다음 날 후속 사진이 나왔다. 해명은 거짓말이 됐고, 그녀의 전화가 쉬지 않고 울렸다.'; }
+      } else { S.fame = clamp(S.fame - 9, 0, 100); S.trust = clamp(S.trust - 5, 0, 100); S.sus = clamp(S.sus + 30, 0, 100); aff(d.hid, -8); out.push('인기 -9', '감독 신뢰 -5'); msg = '"사생활이라 드릴 말씀이 없습니다." 기사는 사흘 동안 메인에 걸려 있었다.'; }
+    } else if (d.ev === 'choose') {
+      if (choice === 0) { out.push(...endMain('다른 사람을 택함')); promoteLove(d.hid); msg = `"정말이지? 이제 손 잡고 걸어도 되는 거지?" ${h.name}이(가) 울면서 웃었다.`; }
+      else if (choice === 1) { aff(d.hid, -8); S.sus = clamp(S.sus + 8, 0, 100); msg = '"맨날 기다리래." 그녀가 한숨을 쉬었다.'; if (chance(0.25)) { S.sus = clamp(S.sus + 40, 0, 100); msg += '\n\n며칠 뒤, 모르는 번호로 연인에게 문자가 갔다는 걸 알게 됐다.'; } }
+      else { delete S.secret[d.hid]; r.aff = Math.min(r.aff, 30); S.mental = clamp(S.mental - 6, 0, 100); out.push('멘탈 -6'); msg = '"그래, 알았어. 잘 지내." 짧은 대답이 오히려 오래 남았다.'; }
+    } else if (d.ev === 'free') {
+      if (choice === 0) { promoteLove(d.hid); msg = `${h.name}와 정식 연인이 됐다.`; out.push('연인'); }
+      else { delete S.secret[d.hid]; aff(d.hid, -10); msg = '"그래, 기다릴게." 그녀가 조용히 전화를 끊었다.'; }
+    } else {
+      const e = LOVE_EVENTS.find((x) => x.id === d.ev);
+      const o = e.opts[choice] || e.opts[0];
+      const fx = o.fx;
+      if (fx.aff) aff(d.hid, fx.aff);
+      if (fx.sus && secrets().length) { S.sus = clamp(S.sus + fx.sus, 0, 100); if (fx.sus > 0) out.push(`들킬 위험 +${fx.sus}`); S.lastCheat = d.hid; }
+      if (fx.money) { S.money += fx.money; out.push(`${won(-fx.money)} 지출`); }
+      out.push(...applyFx({ mental: fx.mental, fat: fx.fat, fame: fx.fame, trust: fx.trust }));
+      msg = o.msg;
+      if (fx.narr && HERO_NIGHT[d.hid]) msg += '\n\n' + pick(HERO_NIGHT[d.hid]);
+    }
+    return { title: info.title, text: msg + (out.length ? '\n\n' + out.join(' · ') : '') };
   }
 
   // ---------- 자산 ----------
@@ -1881,9 +2342,26 @@ const Game = (() => {
         return { title: '연봉 계약 완료', text: msg };
       }
       case 'fa':
-        if (choice === 'stay' || choice === undefined || choice === null) return null;
+      case 'posting':
+        if (choice === 'stay' || choice === undefined || choice === null) {
+          if (ev.type === 'posting') { S.flags.postYear = null; S.mental = clamp(S.mental - 3, 0, 100); return { title: '포스팅 철회', text: '메이저리그 제안을 모두 거절하고 팀에 남기로 했다.' }; }
+          return null;
+        }
         signFA(d.offers[choice]);
-        return { title: 'FA 계약 체결!', text: S.log[0].t };
+        if (ev.type === 'posting') S.flags.postYear = null;
+        return { title: ev.type === 'posting' ? '메이저리그 진출!' : 'FA 계약 체결!', text: S.log[0].t };
+      case 'trade':
+        if (choice === 'stay' || choice == null) { S.trust = clamp(S.trust + 6, 0, 100); return { title: '트레이드 요청 철회', text: '마지막 순간에 마음을 바꿨다. 감독님이 어깨를 툭 쳤다. (감독 신뢰 +6)' }; }
+        doTrade(d.offers[choice].team);
+        return { title: '트레이드 확정!', text: `${teamInfo(S.team).name} 유니폼을 입게 됐다.\n새 팀에서 다시 증명하자.` };
+      case 'traded':
+        if (choice === 'refuse') { S.trust = clamp(S.trust - 5, 0, 100); return { title: '거부권 행사', text: '계약서의 트레이드 거부권을 행사했다. 구단은 트레이드를 없던 일로 했다.' }; }
+        doTrade(d.team);
+        return { title: '트레이드 통보', text: `${teamInfo(S.team).name}(으)로 트레이드됐다. 짐을 싸야 한다.` };
+      case 'optout':
+        if (choice === 'out') { S.contract.optUsed = true; S.contract.years = 0; S.pending.unshift({ type: 'fa', data: { offers: faOffers() } }); return { title: '옵트아웃', text: `남은 ${d.left}년 계약을 포기하고 FA 시장에 나간다.` }; }
+        S.contract.optUsed = true;
+        return { title: '잔류', text: '옵트아웃하지 않고 남은 계약을 이어가기로 했다.' };
       case 'invest':
         if (choice === 'yes') {
           if (chance(0.45)) { S.money += d.amt; return { title: '투자 성공!', text: `투자금이 두 배가 되었다! +${won(d.amt)}` }; }
@@ -1911,6 +2389,7 @@ const Game = (() => {
         addLog(`${h.name}와 헤어졌다...`);
         return null;
       }
+      case 'love': return resolveLove(d, choice);
       case 'choice': {
         const ev2 = choiceInfo(d.id);
         const o = ev2.opts[choice] || ev2.opts[0];
@@ -1952,12 +2431,12 @@ const Game = (() => {
   return {
     get S() { return S; }, newGame, save, load, hasSave, wipe, rollTalent,
     won, usd, grade, dateStr, ovr, batOVR, pitOVR, velScore, repScore, affiliation, myColors, teamInfo, roleLabel, batRole, pitRole,
-    actions, trainingList, planWeek, finishWeek, keyPlayOptions, applyKeyResult, preSimFinal, playerForPlay, makeOppPitcher, makeOppBatter,
+    setRoster, rosterText, rosterInfo, requestState, requestTrade, requestPosting, negotiate, negoChance, clauseText, previewDemand: applyDemand, fallbackOffer, actions, trainingList, planWeek, finishWeek, keyPlayOptions, applyKeyResult, preSimFinal, playerForPlay, makeOppPitcher, makeOppBatter,
     resolve, standings, inRegular, isOffseason, league, seasonCfg, fmtAvg, fmtOps, fmtEra, fmtIp, war, seasonSummary, careerTotals,
-    contact, reply, choiceInfo, canContact, doDate, gift, confess, proposeCheck, propose, dateBlocked, relStage, STAGE_NAME, heroLine,
+    contact, reply, choiceInfo, loveInfo, cheating, mainLove, dateRiskOf: (pid) => dateRisk(DATE_PLACES.find((x) => x.id === pid)), canContact, doDate, gift, confess, proposeCheck, propose, dateBlocked, relStage, STAGE_NAME, heroLine,
     FPOS, fpos, setFpos(k) { if (FPOS[k]) { S.fpos = k; addLog(`포지션을 ${FPOS[k].name}로 바꿨다.`); save(); } },
     buyHouse, sellHouse, buyCar, sellCar, lessonCost, derbyResult, simDerby, addLog, advance, PKEYS, fenceDist,
-    weekSeries, amateur, amCal, chartLabel, LEVEL_LABEL, POS_LABEL, ATTR_NAME, PITCH_ORDER, HS_CAL, ROUNDS, isBatter, isPitcher, clamp, rnd, ri, pick, chance,
+    weekSeries, period, timeline, PERIOD_INFO, amateur, amCal, chartLabel, LEVEL_LABEL, POS_LABEL, ATTR_NAME, PITCH_ORDER, HS_CAL, ROUNDS, isBatter, isPitcher, clamp, rnd, ri, pick, chance,
     // 테스트용
     _sim: { batPA, pitPA, simHalf, simOuting, simGame, blankStats },
   };
