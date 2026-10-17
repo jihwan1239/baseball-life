@@ -332,3 +332,6 @@ input:focus, select:focus { border-color: var(--blue); }
 .badge.b-title { background: #e8f0ff; color: #1d3f8a; border-color: #b8cdf5; }
 .badge.b-green { background: #e3f7e9; color: #146c33; border-color: #a8dfb9; }
 .badge.b-more { color: var(--sub); }
+.rest-tag { font-size: 11px; font-weight: 700; color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); padding: 1px 6px; border-radius: 6px; margin-left: 4px; }
+.li.pack .pk-eff { color: var(--team); font-weight: 600; margin-top: 2px; }
+.li.pack .pk-eff { display: block; }
