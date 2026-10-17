@@ -335,3 +335,7 @@ input:focus, select:focus { border-color: var(--blue); }
 .rest-tag { font-size: 11px; font-weight: 700; color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); padding: 1px 6px; border-radius: 6px; margin-left: 4px; }
 .li.pack .pk-eff { color: var(--team); font-weight: 600; margin-top: 2px; }
 .li.pack .pk-eff { display: block; }
+.hero.ended { opacity: 0.55; filter: grayscale(1); }
+.hero.ended .tag { background: #555; color: #fff; }
+.ended-ph img { filter: grayscale(1) brightness(0.8); }
+.li.end-li b { color: var(--bad); }
