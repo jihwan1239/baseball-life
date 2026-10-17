@@ -244,3 +244,24 @@ input:focus, select:focus { border-color: var(--blue); }
 .hof { display: inline-block; background: var(--warn); color: #fff; border-radius: 999px; padding: 4px 12px; font-weight: 700; font-size: 13px; margin-top: 8px; }
 .hero .ph .st { background: var(--card); color: var(--text); }
 .hero .ph img, .hd-ph img { object-position: 50% 18%; }
+.series { margin: 10px 0; }
+.ser-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+.ser-h small { color: var(--sub); font-size: 12px; }
+.series .games { margin: 4px 0 0; }
+.btn.opt { text-align: left; align-items: flex-start; font-weight: 500; }
+.replay { background: var(--card2); border-radius: 16px; padding: 10px 10px 8px; margin: 10px 0; display: flex; flex-direction: column; gap: 8px; }
+.rp-cap { font-size: 13px; min-height: 20px; }
+.rp-charts { display: grid; grid-template-columns: 1fr; justify-items: center; gap: 8px; }
+.rp-charts.two { grid-template-columns: 1fr 1fr; }
+.rp-svg { width: 100%; max-width: 260px; height: auto; display: block; }
+.rp-svg .pop { transform-box: fill-box; transform-origin: center; animation: popin 0.35s ease-out both; }
+@keyframes popin { from { transform: scale(0); opacity: 0; } 60% { transform: scale(1.6); opacity: 1; } to { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .rp-svg .pop { animation: none; } }
+.replay .mini { align-self: center; }
+.games div.pend { opacity: 0.25; }
+.games div { transition: opacity 0.3s; }
+.night { position: relative; border-radius: 16px; overflow: hidden; margin: 10px 0; background: #14101c; color: #f3e9ff; }
+.night-ph { position: absolute; inset: 0; }
+.night-ph img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 18%; filter: brightness(0.35) saturate(0.8) blur(1px); }
+.night p { position: relative; margin: 0; padding: 48px 18px; font-size: 16px; line-height: 1.6; text-align: center; font-style: italic; text-shadow: 0 1px 6px rgba(0,0,0,0.6); }
+.li.special b { color: #d6336c; }
