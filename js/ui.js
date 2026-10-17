@@ -125,10 +125,19 @@ const UI = (() => {
 
   // ---------- 홈 ----------
   function seasonKpis(t) {
-    const out = [['경기', Math.max(t.G, t.PG)]];
-    if (Game.isBatter()) out.push(['타율', Game.fmtAvg(t.H, t.AB)], ['홈런', t.HR]);
-    if (Game.isPitcher()) out.push(['평균자책', Game.fmtEra(t)], [t.SV > t.W ? '세이브' : '승', t.SV > t.W ? t.SV : t.W]);
+    const R = Game.estRanks() || {};
+    const rt = (r, q) => (r ? `리그 ${r}위` : q === false ? '규정 미달' : '');
+    const out = [['경기', Math.max(t.G, t.PG), R.games ? `팀 ${R.games}경기` : '']];
+    if (Game.isBatter()) out.push(['타율', Game.fmtAvg(t.H, t.AB), rt(R.avg, R.avgQ)], ['홈런', t.HR, rt(R.hr)]);
+    if (Game.isPitcher()) { const sv = t.SV > t.W; out.push(['평균자책', Game.fmtEra(t), rt(R.era, R.eraQ)], [sv ? '세이브' : '승', sv ? t.SV : t.W, rt(sv ? R.sv : R.w)]); }
     return Game.isBatter() && Game.isPitcher() ? [out[1], out[2], out[3]] : out;
+  }
+  const BADGE_IC = { gold: '🏆', ring: '💍', glove: '🧤', title: '👑', green: '🌱', star: '⭐', school: '🎖' };
+  function badges(limit) {
+    const list = Game.awardBadges();
+    if (!list.length) return '';
+    const shown = limit ? list.slice(0, limit) : list;
+    return `<div class="badges">${shown.map((b) => `<span class="badge b-${b.kind}">${BADGE_IC[b.kind]} ${esc(b.label)}${b.n > 1 ? ` <em>×${b.n}</em>` : ''}</span>`).join('')}${limit && list.length > limit ? `<span class="badge b-more">+${list.length - limit}</span>` : ''}</div>`;
   }
   function home() {
     const S = G();
@@ -150,7 +159,8 @@ const UI = (() => {
             <div class="delta ${d > 0 ? 'up' : d < 0 ? 'down' : ''}">${d ? `올해 ${d > 0 ? '+' : ''}${d} · ` : ''}${roleTxt}</div>
           </div>
         </div>
-        <div class="kpis">${seasonKpis(S.st).map(([k, v]) => `<div class="kpi"><small>${k}</small><b>${v}</b></div>`).join('')}</div>
+        ${badges(4)}
+        <div class="kpis">${seasonKpis(S.st).map(([k, v, r]) => `<div class="kpi"><small>${k}</small><b>${v}</b>${r ? `<span class="rk ${/^리그 [1-3]위/.test(r) ? 'top' : ''}">${r}</span>` : ''}</div>`).join('')}</div>
         <div class="gauges">
           <div class="gauge">피로${bar(S.fat, 100, S.fat > 70 ? 'bad' : S.fat > 45 ? 'warn' : 'good')}<em>${Math.round(S.fat)}</em></div>
           <div class="gauge">멘탈${bar(S.mental, 100, 'blue')}<em>${Math.round(S.mental)}</em></div>
@@ -346,7 +356,7 @@ const UI = (() => {
     let h = `${header('선수')}
       <div class="card"><div class="profile"><div class="avatar">${esc(S.name.slice(-2))}${photo('player')}</div><div>
         <div class="who">${Game.POS_LABEL[S.pos]}${Game.isBatter() ? ` (${Game.fpos().name})` : ''} · ${S.throws === 'L' ? '좌투' : '우투'}${S.bats === 'L' ? '좌타' : S.bats === 'S' ? '양타' : '우타'} · #${S.num}</div>
-        <div class="ovr">${esc(S.name)}</div><div class="small muted">잠재력 <span class="stars">${starStr(pot)}</span></div></div></div></div>`;
+        <div class="ovr">${esc(S.name)}</div><div class="small muted">잠재력 <span class="stars">${starStr(pot)}</span></div></div></div>${badges()}</div>`;
     if (Game.isBatter()) {
       const b = S.bat;
       const canMove = Game.amateur() || Game.isOffseason();
@@ -396,7 +406,7 @@ const UI = (() => {
             return `<div class="hero locked"><div class="ph">?</div><div class="meta"><b>???</b><small>${hint}</small></div></div>`;
           }
           const st = Game.relStage(r.aff, x.id);
-          return `<button class="hero" data-hero="${x.id}"><div class="ph">${x.name.slice(-2)}${photo(x.id)}<span class="tag ${st === 7 ? 'secret' : st >= 4 ? 'bad' : 'team'} st">${Game.STAGE_NAME[st]}</span></div><div class="meta"><b>${x.name}</b><small>${x.age}세 · ${x.job}</small>${bar(r.aff, 100, 'pink')}</div></button>`;
+          return `<button class="hero" data-hero="${x.id}"><div class="ph">${x.name.slice(-2)}${photo(x.id)}<span class="tag ${S.obsess && S.obsess[x.id] ? 'obs' : st === 7 ? 'secret' : st >= 4 ? 'bad' : 'team'} st">${S.obsess && S.obsess[x.id] ? '집착' : r.aff >= 100 ? Game.STAGE_NAME[st] + ' ♥MAX' : Game.STAGE_NAME[st]}</span></div><div class="meta"><b>${x.name}</b><small>${x.age}세 · ${x.job}</small>${bar(r.aff, 100, 'pink')}</div></button>`;
         }).join('')}</div>
         <p class="hint">연락은 사람마다 주 1회 무료예요. 데이트는 그 주의 행동을 써요.</p>`;
       return h;
@@ -667,6 +677,30 @@ const UI = (() => {
         sheet({ title: L.title, body: (L.news ? `<div class="news-flash">${esc(L.news)}</div>` : '') + heroBlock(h, L.lines), buttons: L.opts.map((o, i) => ({ label: esc(o), cls: 'sub opt', onClick: () => done(i) })) });
         break;
       }
+      case 'herCall': {
+        const h = HEROINES.find((x) => x.id === d.hid);
+        const casual = Game.relStage(G().rel[h.id].aff, h.id) >= 4;
+        const open1 = HER_CALL[casual ? 'c' : 'p'][Math.floor(Math.random() * 3)];
+        sheet({ title: '', body: `<div class="call-in"><div class="call-av">${photo(h.id)}</div><b>${h.name}</b><small>${G().obsess && G().obsess[h.id] ? '부재중 전화 3통 · 지금 또 전화 중' : '먼저 전화가 왔어요'}</small></div>`, row: true,
+          buttons: [{ label: '나중에', cls: 'sub', onClick: () => done('skip') }, { label: '받기', onClick: () => chat(h, Game.talkTopics(h.id, 3), '걸려 온 전화', (gain, fx) => { const g = Game.talkFinish(h.id, gain, 'call', fx); return `통화 끝 · 호감 ${g >= 0 ? '+' : ''}${g}`; }, () => done(), [open1]) }] });
+        break;
+      }
+      case 'obsess': {
+        const L = Game.obsessInfo(d);
+        const h = HEROINES.find((x) => x.id === L.hid);
+        sheet({ title: L.title, body: `<div class="obs-bar">집착${bar(L.level, 100, 'bad')}<em>${Math.round(L.level)}</em></div>` + heroBlock(h, L.lines), buttons: L.opts.map((o, i) => ({ label: esc(o), cls: 'sub opt', onClick: () => done(i) })) });
+        break;
+      }
+      case 'obsStart': {
+        const h = HEROINES.find((x) => x.id === d.hid);
+        sheet({ title: '이상한 예감', body: heroBlock(h, ['[오전 7:02] 일어났어?', '[오전 7:05] 왜 답이 없어', '[오전 7:06] 나 너 없으면 진짜 안 돼. 알지?']) + `<p class="hint">${h.name}의 연락이 하루 50통을 넘기 시작했어요. 집착이 시작됐어요. 차분히 안심시키면 가라앉고, 밀어내거나 다른 사람을 만나면 심해져요.</p>`, buttons: [{ label: '확인', onClick: () => done() }] });
+        break;
+      }
+      case 'obsCrisis': {
+        const h = HEROINES.find((x) => x.id === d.hid);
+        sheet({ title: '선을 넘었다', body: heroBlock(h, ['[경기장 선수 출입구]', '왜 나 피해? 나 여기서 세 시간 기다렸어.', '오늘 나랑 같이 안 가면 나 진짜 무슨 짓 할지 몰라.']) + '<p class="hint">기자들이 이 장면을 찍었어요. 인기와 감독 신뢰가 떨어져요.</p>', row: true, buttons: [{ label: '끝내자고 한다', cls: 'danger', onClick: () => done('end') }, { label: '한 번 더 믿어본다', cls: 'sub', onClick: () => done('stay') }] });
+        break;
+      }
       case 'meet': { const h = HEROINES.find((x) => x.id === d.hid); sheet({ title: '새로운 만남', body: `<p class="muted">${h.meet}에서</p>` + heroBlock(h, h.intro), buttons: [{ label: '확인', onClick: () => done() }] }); break; }
       case 'path': {
         const o = Game.ovr();
@@ -752,7 +786,7 @@ const UI = (() => {
     const sneak = Game.cheating(id);
     const body = `<div class="hd-ph">${h.name.slice(-2)}${photo(h.id)}</div>
       <div class="kv" style="margin-top:10px"><span>${h.age}세 · ${h.job}</span><b>${Game.STAGE_NAME[st]}</b></div>
-      <div class="gauge">호감${bar(r.aff, 100, 'pink')}<em>${Math.round(r.aff)}</em></div>
+      <div class="gauge">호감${bar(r.aff, 100, 'pink')}<em>${r.aff >= 100 ? 'MAX' : Math.round(r.aff)}</em></div>${S.obsess && S.obsess[id] ? `<div class="gauge">집착${bar(S.obsess[id], 100, 'bad')}<em>${Math.round(S.obsess[id])}</em></div>` : r.aff >= 100 ? '<p class="hint" style="margin:4px 0 0">호감 MAX라 가끔 먼저 연락이 와요.</p>' : ''}
       <div class="list" style="margin-top:8px">
         <button class="li" data-h="call" ${Game.canContact(id) ? '' : 'disabled'}><div class="ic">${IC.phone}</div><div class="tx"><b>연락하기</b><small>${Game.canContact(id) ? '무료 · 호감 조금 상승' : '이번 주에 이미 연락했어요'}</small></div></button>
         <button class="li" data-h="date" ${blocked ? 'disabled' : ''}><div class="ic">${IC.heart}</div><div class="tx"><b>데이트</b><small>${blocked || (sneak ? '몰래 데이트 · 들킬 위험이 있어요' : '이번 주 행동을 써요')}</small></div></button>
@@ -779,8 +813,8 @@ const UI = (() => {
     });
   }
   // 대화 티키타카: 그녀 말 → 내 선택 → 그녀 반응, 여러 번
-  function chat(h, topics, where, finish, then) {
-    const log = [];
+  function chat(h, topics, where, finish, then, pre) {
+    const log = (pre || []).map((t) => `<div class="cb her">${esc(t)}</div>`);
     let i = 0, gain = 0;
     const fx = {};
     const night = /특급|호텔|해외/.test(where);
