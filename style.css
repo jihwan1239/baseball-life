@@ -265,3 +265,36 @@ input:focus, select:focus { border-color: var(--blue); }
 .night-ph img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 18%; filter: brightness(0.35) saturate(0.8) blur(1px); }
 .night p { position: relative; margin: 0; padding: 48px 18px; font-size: 16px; line-height: 1.6; text-align: center; font-style: italic; text-shadow: 0 1px 6px rgba(0,0,0,0.6); }
 .li.special b { color: #d6336c; }
+.period { padding: 14px 16px; }
+.pd-top { display: flex; justify-content: space-between; align-items: center; }
+.pd-top small { color: var(--sub); font-size: 12px; }
+.pd-pill { display: inline-block; color: #fff; font-weight: 700; font-size: 14px; padding: 4px 12px; border-radius: 999px; }
+.pd-pill.sm { font-size: 12px; padding: 2px 10px; margin-bottom: 4px; }
+.pd-desc { margin: 8px 0 10px; font-size: 13px; color: var(--sub); }
+.pd-bar { position: relative; display: flex; height: 10px; border-radius: 5px; overflow: visible; gap: 2px; }
+.pd-bar i { display: block; height: 100%; border-radius: 3px; opacity: 0.85; }
+.pd-bar b { position: absolute; top: -5px; width: 4px; height: 20px; margin-left: -2px; border-radius: 2px; background: var(--text); box-shadow: 0 0 0 2px var(--card); }
+.pd-lbl { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 10px; }
+.pd-lbl span { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--sub); }
+.pd-lbl span i { width: 8px; height: 8px; border-radius: 2px; }
+.pd-lbl span.on { color: var(--text); font-weight: 700; }
+.sp { color: var(--sub); font-size: 12px; font-weight: 400; margin-left: 4px; }
+.ro-tx { width: 100%; min-height: 220px; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--text); font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+.tag.secret { background: #2b1a3d; color: #e3b8ff; }
+.news-flash { background: var(--card2); border-left: 3px solid var(--bad); padding: 10px 12px; border-radius: 8px; font-weight: 700; font-size: 14px; margin-bottom: 10px; }
+.offers { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.offer { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; background: var(--card); }
+.offer.ok { border-color: var(--good); }
+.of-h { display: flex; align-items: center; gap: 6px; font-size: 15px; }
+.of-m { font-size: 13px; margin-top: 4px; }
+.of-c { font-size: 12px; color: var(--team); margin-top: 2px; font-weight: 600; }
+.of-b { display: flex; gap: 8px; margin-top: 8px; }
+.of-b .btn { flex: 1; padding: 10px; font-size: 14px; }
+.ng-chips { display: flex; flex-direction: column; gap: 6px; }
+.chip.ng-c { display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--text); width: 100%; }
+.chip.ng-c small { color: var(--sub); font-size: 11px; }
+.chip.ng-c.on { border-color: var(--team); background: color-mix(in srgb, var(--team) 10%, var(--card)); }
+.ng-prev { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--card2); }
+.c-good { color: var(--good); } .c-warn { color: var(--warn); } .c-bad { color: var(--bad); }
+.ng-terms { font-weight: 700; font-size: 14px; margin: 2px 0; }
+.field + .field { margin-top: 10px; }
