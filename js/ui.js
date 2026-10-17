@@ -111,7 +111,7 @@ const UI = (() => {
     const o = Game.ovr();
     if (S.ovrMark == null || S.ovrMarkYear !== S.year) { S.ovrMark = o; S.ovrMarkYear = S.year; }
     const d = o - S.ovrMark;
-    const roleTxt = S.phase === 'HS' ? (S.pos === 'P' ? '투수' : S.pos === 'TW' ? `${Game.fpos().name} / 투수` : Game.fpos().name) : Game.roleLabel();
+    const roleTxt = Game.amateur() ? (S.pos === 'P' ? '투수' : S.pos === 'TW' ? `${Game.fpos().name} / 투수` : Game.fpos().name) : Game.roleLabel();
     const acts = Game.actions();
     if (S.phase !== 'HS') acts.push({ id: 'date', name: '데이트', icon: 'love', sub: S.partner ? '연인과 시간 보내기' : '호감도 올리기' });
     const iconOf = { train: 'train', rest: 'rest', star: 'star', coin: 'coin', heart: 'fan', chart: 'video', cal: 'book' };
@@ -130,6 +130,7 @@ const UI = (() => {
           <div class="gauge">피로${bar(S.fat, 100, S.fat > 70 ? 'bad' : S.fat > 45 ? 'warn' : 'good')}<em>${Math.round(S.fat)}</em></div>
           <div class="gauge">멘탈${bar(S.mental, 100, 'blue')}<em>${Math.round(S.mental)}</em></div>
           <div class="gauge">인기${bar(S.fame, 100, 'pink')}<em>${Math.round(S.fame)}</em></div>
+          ${S.phase === 'KBO' || S.phase === 'MLB' ? `<div class="gauge">신뢰${bar(S.trust, 100, S.trust < 35 ? 'bad' : '')}<em>${Math.round(S.trust)}</em></div>` : ''}
         </div>
         <div class="kv" style="margin-top:8px"><span>보유 자산</span><b>${Game.won(S.money)}</b></div>
         ${S.injury ? `<div class="kv"><span>부상</span><b style="color:var(--bad)">${S.injury}주 결장</b></div>` : ''}
@@ -153,28 +154,33 @@ const UI = (() => {
   }
   function nextTitle() {
     const S = G();
-    if (S.phase === 'HS') return S.grade === 3 && S.week < 34 ? '드래프트가 다가와요' : '고교 대회 일정';
+    if (Game.amateur()) { const dy = (S.phase === 'HS' && S.grade === 3) || (S.phase === 'UNI' && (S.grade === 2 || S.grade === 4)); return dy && S.week < 34 ? '드래프트가 다가와요' : `${S.phase === 'UNI' ? '대학' : '고교'} 대회 일정`; }
+    if (S.phase === 'INDY') return Game.inRegular() ? '독립리그 시즌 중' : '독립리그 비시즌';
     if (Game.inRegular()) return '정규시즌 진행 중';
     return Game.isOffseason() ? '비시즌' : '시즌 준비';
   }
   function nextEventText() {
     const S = G();
     const w = S.week;
-    if (S.phase === 'HS') {
-      const cal = Game.HS_CAL[w];
+    if (Game.amateur()) {
+      const CAL = Game.amCal();
+      const cal = CAL[w];
       if (S.hs.tourn && S.hs.tourn.alive && cal && cal.t === 'tourn') return `${S.hs.tourn.name} 진행 중 · 다음 ${Game.ROUNDS[S.hs.tourn.round] || ''}`;
-      const ups = Object.entries(Game.HS_CAL).map(([k, v]) => [+k, v]).filter(([k, v]) => k >= w && v.start);
+      const ups = Object.entries(CAL).map(([k, v]) => [+k, v]).filter(([k, v]) => k >= w && v.start);
       const parts = [];
       if (ups.length) parts.push(`다음 대회 ${ups[0][1].name} (${Math.floor(ups[0][0] / 4) + 1}월 ${(ups[0][0] % 4) + 1}주)`);
-      if (S.grade === 3 && w < 34) parts.push('9월 3주 KBO 신인 드래프트');
-      if (!parts.length) parts.push(w >= 40 || w < 8 ? '동계 훈련 기간이라 훈련 효과가 15% 높아요' : '주말리그 진행 중');
+      if (((S.phase === 'HS' && S.grade === 3) || (S.phase === 'UNI' && S.grade === 4)) && w < 34) parts.push('9월 3주 KBO 신인 드래프트');
+      if (S.phase === 'UNI' && S.grade === 2 && w < 34) parts.push('8월 말 얼리 드래프트 신청 가능');
+      if (!parts.length) parts.push(w >= 40 || w < 8 ? '동계 훈련 기간이라 훈련 효과가 15% 높아요' : (S.phase === 'UNI' ? 'U-리그 진행 중' : '주말리그 진행 중'));
       return parts.join(' · ');
     }
     const c = Game.seasonCfg();
     if (w < c.reg[0]) return (w >= c.camp[0] && w <= c.camp[1]) ? '스프링캠프 중이라 훈련 효과가 30% 높아요' : `시즌 개막까지 ${c.reg[0] - w}주`;
     if (w <= c.reg[1]) {
-      if (S.phase === 'KBO') { const st = Game.standings(); const r = st.findIndex((t) => t.id === S.team) + 1; const t = st[r - 1]; return `팀 ${r}위 (${t.w}승 ${t.l}패) · 정규시즌 ${c.reg[1] - w + 1}주 남음`; }
-      return `${Game.LEVEL_LABEL[S.level]} · 팀 ${S.teamRec.w}승 ${S.teamRec.l}패`;
+      const ws = (S.level === 'KBO1' || S.level === 'MLB') ? Game.weekSeries() : [];
+      const vs = ws.length ? `<br>이번 주 ${ws.map((x, i) => `${i ? '금~일' : '화~목'} ${x.home ? 'vs' : '@'} ${esc(Game.teamInfo(x.opp).short || Game.teamInfo(x.opp).name)}`).join(' · ')}` : '';
+      if (S.phase === 'KBO') { const st = Game.standings(); const r = st.findIndex((t) => t.id === S.team) + 1; const t = st[r - 1]; return `팀 ${r}위 (${t.w}승 ${t.l}패) · 정규시즌 ${c.reg[1] - w + 1}주 남음${vs}`; }
+      return `${Game.LEVEL_LABEL[S.level]} · 팀 ${S.teamRec.w}승 ${S.teamRec.l}패${vs}`;
     }
     if (w <= c.post[1]) return S.post && S.post.alive ? '포스트시즌 진행 중' : '포스트시즌 (팀 탈락)';
     return '휴식과 훈련으로 다음 시즌을 준비해요';
@@ -193,9 +199,9 @@ const UI = (() => {
     if (Game.isBatter()) statCard += sl([['타율', Game.fmtAvg(t.H, t.AB)], ['홈런', t.HR], ['타점', t.RBI], ['OPS', Game.fmtOps(t)], ['경기', t.G], ['안타', t.H], ['볼넷', t.BB], ['도루', t.SB]]);
     if (Game.isPitcher()) statCard += (statCard ? '<div style="height:14px"></div>' : '') + sl([['평균자책', Game.fmtEra(t)], ['승-패', `${t.W}-${t.L}`], ['이닝', Game.fmtIp(t.OUTS)], ['탈삼진', t.PSO], ['경기', t.PG], ['세이브', t.SV], ['홀드', t.HLD], ['WHIP', t.OUTS ? ((t.PH + t.PBB) * 3 / t.OUTS).toFixed(2) : '-']]);
     return `${header('시즌')}
-      <div class="card"><div class="card-t"><h3>${S.year} 시즌 기록</h3><small>${S.phase === 'HS' ? '고교 공식전' : Game.LEVEL_LABEL[S.level]}</small></div>${statCard}</div>
+      <div class="card"><div class="card-t"><h3>${S.year} 시즌 기록</h3><small>${Game.chartLabel(S.chart).replace(/^\d+ /, '') || (Game.amateur() ? '공식전' : Game.LEVEL_LABEL[S.level])}</small></div>${statCard}</div>
       <div class="card">
-        <div class="card-t"><h3>${kind === 'spray' ? '타구 분포도' : '투구 분포도'}</h3><small>${esc(ch.label || '')}</small></div>
+        <div class="card-t"><h3>${kind === 'spray' ? '타구 분포도' : '투구 분포도'}</h3><small>${esc(Game.chartLabel(ch))}</small></div>
         ${S.chartPrev ? `<div class="seg" style="margin-bottom:10px"><button data-season="cur" class="${view.season !== 'prev' ? 'on' : ''}">이번 시즌</button><button data-season="prev" class="${view.season === 'prev' ? 'on' : ''}">지난 시즌</button></div>` : ''}
         ${both ? `<div class="seg" style="margin-bottom:10px"><button data-chart="spray" class="${kind === 'spray' ? 'on' : ''}">타구</button><button data-chart="pitch" class="${kind === 'pitch' ? 'on' : ''}">투구</button></div>` : ''}
         ${kind === 'spray' ? sprayChart(ch.spray) : pitchChart(ch.pitches)}
@@ -280,18 +286,22 @@ const UI = (() => {
 
   function leagueCard() {
     const S = G();
-    if (S.phase === 'HS') {
-      const ev = Object.entries(Game.HS_CAL).filter(([, v]) => v.start).map(([k, v]) => {
+    if (S.phase === 'INDY') {
+      return `<div class="card"><div class="card-t"><h3>${Game.teamInfo(S.team).name}</h3><small>${S.teamRec.w}승 ${S.teamRec.l}패</small></div>
+        <p class="hint" style="margin-top:0">독립리그에는 연봉이 없어요. 시즌 중 성적이 좋거나 비시즌에 실력이 충분하면 KBO 구단이 신고선수 계약을 제안해요.</p></div>`;
+    }
+    if (Game.amateur()) {
+      const ev = Object.entries(Game.amCal()).filter(([, v]) => v.start).map(([k, v]) => {
         const k2 = +k;
         let status = k2 < S.week ? '종료' : '예정';
         if (S.hs.tourn && S.hs.tourn.name === v.name) status = S.hs.tourn.alive ? '진행 중' : (S.trophies.includes(`${S.year} ${v.name} 우승`) ? '우승' : `${Game.ROUNDS[Math.min(S.hs.tourn.round, 5)]} 탈락`);
         return `<div class="kv"><span>${Math.floor(k2 / 4) + 1}월 ${(k2 % 4) + 1}주 ${v.name}</span><b>${status}</b></div>`;
       }).join('');
-      return `<div class="card"><div class="card-t"><h3>고교 대회</h3><small>${S.year}</small></div>${ev}</div>
+      return `<div class="card"><div class="card-t"><h3>${S.phase === 'UNI' ? '대학 대회' : '고교 대회'}</h3><small>${S.year}</small></div>${ev}</div>
         <div class="card"><div class="card-t"><h3>스카우트 관심도</h3></div>
           <div class="gauge">KBO${bar(S.hs.scoutK, 100)}<em>${Math.round(S.hs.scoutK)}</em></div>
           <div class="gauge" style="margin-top:8px">MLB${bar(S.hs.scoutM, 100, 'blue')}<em>${Math.round(S.hs.scoutM)}</em></div>
-          <p class="hint">3학년 8월 말에 진로를 정하고 9월 3주에 KBO 신인 드래프트가 열려요. 구속 145km 이상이거나 종합 능력치가 높으면 메이저리그 스카우트가 찾아와요.</p></div>`;
+          <p class="hint">${S.phase === 'UNI' ? '2학년(얼리)과 4학년 때 드래프트에 나갈 수 있어요.' : '3학년 8월 말에 진로를 정하고 9월 3주에 KBO 신인 드래프트가 열려요.'} 구속 145km 이상이거나 종합 능력치가 높으면 메이저리그 스카우트가 찾아와요.</p></div>`;
     }
     if (S.phase === 'KBO') {
       const st = Game.standings();
@@ -314,7 +324,7 @@ const UI = (() => {
         <div class="ovr">${esc(S.name)}</div><div class="small muted">잠재력 <span class="stars">${starStr(pot)}</span></div></div></div></div>`;
     if (Game.isBatter()) {
       const b = S.bat;
-      const canMove = S.phase === 'HS' || Game.isOffseason();
+      const canMove = Game.amateur() || Game.isOffseason();
       h += `<div class="card"><div class="kv"><span>수비 포지션</span><b>${Game.fpos().name}</b></div><button class="btn full sub" data-a="fpos" ${canMove ? '' : 'disabled'}>${canMove ? '포지션 바꾸기' : '포지션은 비시즌에 바꿀 수 있어요'}</button></div>`;
       h += `<div class="card"><div class="card-t"><h3>타격</h3><small>종합 ${Game.batOVR()}</small></div>
         ${[['con', '컨택'], ['pow', '파워'], ['eye', '선구안'], ['spd', '주력'], ['def', '수비'], ['arm', '송구']].map(([k, n]) => `<div class="ab"><span>${n}</span>${bar(b[k])}<em>${Math.round(b[k])}</em>${gradeTag(b[k])}</div>`).join('')}</div>`;
@@ -329,7 +339,7 @@ const UI = (() => {
     const c = S.contract;
     h += `<div class="card"><div class="card-t"><h3>계약</h3></div>
       <div class="kv"><span>소속</span><b>${esc(Game.affiliation())}</b></div>
-      <div class="kv"><span>역할</span><b>${S.phase === 'HS' ? '고교 선수' : Game.roleLabel()}</b></div>
+      <div class="kv"><span>역할</span><b>${Game.amateur() ? (S.phase === 'UNI' ? '대학 선수' : '고교 선수') : Game.roleLabel()}</b></div>
       ${c ? `<div class="kv"><span>연봉</span><b>${c.kind === 'milb' && !c.arb ? (S.level === 'MLB' ? Game.usd(780000) + ' (최저)' : '마이너 계약') : Game.won(c.salary)}${c.years ? ` · ${c.years}년 남음` : ''}</b></div>` : ''}
       ${S.phase === 'KBO' ? `<div class="kv"><span>FA까지</span><b>1군 ${S.service} / 7시즌</b></div>` : ''}
       ${S.phase === 'MLB' ? `<div class="kv"><span>FA까지</span><b>서비스 타임 ${S.mlbService} / 6년</b></div>` : ''}</div>`;
@@ -384,7 +394,7 @@ const UI = (() => {
       if (Game.isBatter()) table += `<div class="tbl-wrap"><table><tr><th>시즌</th><th>G</th><th>타율</th><th>HR</th><th>타점</th><th>OPS</th><th>WAR</th></tr>${rows.map((c) => `<tr><td>${c.year} ${esc(c.team.split(' ')[0])}<small>${c.level}</small></td><td>${c.st.G}</td><td>${Game.fmtAvg(c.st.H, c.st.AB)}</td><td>${c.st.HR}</td><td>${c.st.RBI}</td><td>${Game.fmtOps(c.st)}</td><td>${c.war ?? '-'}</td></tr>`).join('')}</table></div>`;
       if (Game.isPitcher()) table += `<div class="tbl-wrap" style="margin-top:10px"><table><tr><th>시즌</th><th>G</th><th>승</th><th>패</th><th>세</th><th>이닝</th><th>ERA</th><th>K</th></tr>${rows.map((c) => `<tr><td>${c.year} ${esc(c.team.split(' ')[0])}<small>${c.level}</small></td><td>${c.st.PG}</td><td>${c.st.W}</td><td>${c.st.L}</td><td>${c.st.SV}</td><td>${Game.fmtIp(c.st.OUTS)}</td><td>${Game.fmtEra(c.st)}</td><td>${c.st.PSO}</td></tr>`).join('')}</table></div>`;
     }
-    const c = S.phase === 'HS' ? null : Game.seasonCfg();
+    const c = S.phase === 'KBO' || S.phase === 'MLB' ? Game.seasonCfg() : null;
     const wk = (w) => `${Math.floor(w / 4) + 1}월 ${(w % 4) + 1}주`;
     return `${header('기록')}
       ${tot.seasons ? `<div class="card"><div class="card-t"><h3>프로 통산</h3><small>${tot.seasons}시즌</small></div><p class="pre" style="margin:0">${Game.seasonSummary(tot)}</p><div class="kv" style="margin-top:6px"><span>통산 WAR</span><b>${tot.war}</b></div></div>` : ''}
@@ -460,8 +470,23 @@ const UI = (() => {
     const parts = [];
     if (auto) parts.push(`<p class="muted small">${auto}</p>`);
     if (rep.gains && rep.gains.length) parts.push(`<div class="chips" style="margin:8px 0">${rep.gains.map((g) => `<span class="chip">${esc(g)}</span>`).join('')}</div>`);
-    if (rep.dateLine && rep.dateHid) { const h = HEROINES.find((x) => x.id === rep.dateHid); parts.push(`<div class="bubble"><div class="who">${h.name}</div>${esc(rep.dateLine)}</div>`); }
-    if (rep.games.length) parts.push(`<div class="games">${rep.games.map((g) => `<div class="${g.win ? 'w' : 'l'}"><em>${g.win ? '승' : '패'}</em><span>${g.title ? `<b>${esc(g.title)}</b> ` : ''}${esc(g.label)}</span><b>${g.ours}:${g.theirs}</b></div>`).join('')}</div>`);
+    if (rep.dateLine && rep.dateHid) {
+      const h = HEROINES.find((x) => x.id === rep.dateHid);
+      if (rep.dateNarr) parts.push(`<div class="night"><div class="night-ph">${photo(h.id)}</div><p>${esc(rep.dateLine)}</p></div>`);
+      else parts.push(`<div class="bubble"><div class="who">${h.name}</div>${esc(rep.dateLine)}</div>`);
+    }
+    const anim = rep.anim;
+    const showS = !auto && anim && anim.spray.length > 0;
+    const showP = !auto && anim && anim.pitches.length > 0;
+    const replay = (showS || showP) && rep.games.length;
+    if (replay) parts.push(`<div class="replay"><div class="rp-cap" id="rp-cap">경기 시작</div><div class="rp-charts ${showS && showP ? 'two' : ''}">${showS ? miniField() : ''}${showP ? miniZone() : ''}</div><button class="mini sub" id="rp-skip">결과 바로 보기</button></div>`);
+    const gRow = (g) => `<div class="${g.win ? 'w' : 'l'} ${replay ? 'pend' : ''}" data-gi="${g.gi != null ? g.gi : ''}"><em>${g.win ? '승' : '패'}</em><span>${g.title ? `<b>${esc(g.title)}</b> ` : ''}${esc(g.label)}</span><b>${g.ours}:${g.theirs}</b></div>`;
+    if (rep.series && rep.series.length) {
+      rep.series.forEach((x, i) => {
+        const tagCls = x.tag === '스윕' || x.tag === '위닝시리즈' ? 'good' : 'bad';
+        parts.push(`<div class="series"><div class="ser-h"><div><b>${esc(x.opp)}</b> <small>${x.when} · ${x.home ? '홈' : '원정'} 3연전</small></div><span class="tag ${tagCls}">${x.tag} ${x.w}승 ${x.l}패</span></div><div class="games">${rep.games.filter((g) => g.ser && g.ser.i === i).map(gRow).join('')}</div></div>`);
+      });
+    } else if (rep.games.length) parts.push(`<div class="games">${rep.games.map(gRow).join('')}</div>`);
     if (w && (w.PA || w.PG)) {
       const l = [];
       if (w.PA) l.push(`타격 ${w.AB}타수 ${w.H}안타${w.HR ? ` ${w.HR}홈런` : ''}${w.RBI ? ` ${w.RBI}타점` : ''}${w.BB ? ` ${w.BB}볼넷` : ''}${w.SB ? ` ${w.SB}도루` : ''}`);
@@ -471,7 +496,66 @@ const UI = (() => {
     (rep.lines || []).forEach((l) => parts.push(`<p class="small muted">${esc(l)}</p>`));
     (rep.events || []).forEach((l) => parts.push(`<p style="color:var(--bad)">${esc(l)}</p>`));
     if (!parts.length) parts.push('<p class="muted">조용한 한 주가 지나갔어요.</p>');
-    sheet({ title: auto ? '자동 진행 결과' : `${rep.title} 결과`, body: parts.join(''), buttons: [{ label: '확인', onClick: () => { render(); processPending(); } }] });
+    sheet({ title: auto ? '자동 진행 결과' : `${rep.title} 결과`, body: parts.join(''), buttons: [{ label: '확인', onClick: () => { clearTimeout(rpTimer); render(); processPending(); } }], onRender: (b) => { if (replay) runReplay(b, rep); } });
+  }
+
+  // ---------- 경기 리플레이 (주간 결과에서 경기마다 점이 찍힘) ----------
+  let rpTimer = null;
+  const SPRAY_COL = ['#9aa3ae', '#3182f6', '#f08c00', '#f08c00', '#e5484d'];
+  function miniField() {
+    const hx = 120, hy = 206, k = 1.32;
+    const xy = (a, d) => [hx + d * Math.sin(a * Math.PI / 180) * k, hy - d * Math.cos(a * Math.PI / 180) * k];
+    const arc = []; for (let a = -45; a <= 45; a += 5) arc.push(xy(a, Game.fenceDist(a)));
+    const inf = []; for (let a = -45; a <= 45; a += 9) inf.push(xy(a, 29));
+    const P2 = (pts) => `M${hx},${hy} ` + pts.map((p) => `L${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ') + ' Z';
+    return `<svg viewBox="0 0 240 214" class="rp-svg" data-kind="spray"><path d="${P2(arc)}" fill="var(--field)" stroke="var(--line)" stroke-width="1.5"/><path d="${P2(inf)}" fill="var(--dirt)"/><g class="dots"></g></svg>`;
+  }
+  function miniZone() {
+    return `<svg viewBox="0 0 240 214" class="rp-svg" data-kind="pitch"><rect x="0" y="0" width="240" height="214" rx="10" fill="var(--card)"/><rect x="${120 - 44}" y="${105 - 55}" width="88" height="110" fill="none" stroke="var(--text)" stroke-width="1.5"/><g class="dots"></g></svg>`;
+  }
+  function dotFor(kind, p) {
+    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    if (kind === 'spray') {
+      const k = 1.32;
+      c.setAttribute('cx', (120 + p[1] * Math.sin(p[0] * Math.PI / 180) * k).toFixed(1));
+      c.setAttribute('cy', (206 - p[1] * Math.cos(p[0] * Math.PI / 180) * k).toFixed(1));
+      c.setAttribute('r', p[2] === 4 ? 4.6 : 3.6);
+      c.setAttribute('fill', SPRAY_COL[p[2]]);
+    } else {
+      c.setAttribute('cx', (120 + p[0] / 100 * 44).toFixed(1));
+      c.setAttribute('cy', (105 + p[1] / 100 * 55).toFixed(1));
+      c.setAttribute('r', 2.8);
+      c.setAttribute('fill', PCOL[Game.PKEYS[p[2]]]);
+      c.setAttribute('fill-opacity', '0.7');
+    }
+    return c;
+  }
+  function runReplay(body, rep) {
+    clearTimeout(rpTimer);
+    const games = rep.games.filter((g) => g.gi != null);
+    const order = games.map((g) => g.gi);
+    const cap = $('#rp-cap', body);
+    const svgs = $$('.rp-svg', body);
+    let step = 0;
+    const show = (gi, instant) => {
+      const g = rep.games.find((x) => x.gi === gi);
+      svgs.forEach((sv) => {
+        const kind = sv.dataset.kind;
+        const list = (kind === 'spray' ? rep.anim.spray : rep.anim.pitches).filter((p) => p[p.length - 1] === gi);
+        const grp = sv.querySelector('.dots');
+        list.forEach((p, i) => { const d = dotFor(kind, p); if (!instant) { d.classList.add('pop'); d.style.animationDelay = Math.min(i * (kind === 'spray' ? 120 : 8), 600) + 'ms'; } grp.appendChild(d); });
+      });
+      const row = body.querySelector(`.games [data-gi="${gi}"]`);
+      if (row) row.classList.remove('pend');
+      if (g && cap) cap.innerHTML = `<b>${esc(g.ser ? `${g.ser.opp} ${g.label}` : g.label)}</b> ${g.win ? '승' : '패'} ${g.ours}:${g.theirs}${g.me ? ` · ${esc(g.me)}` : ''}`;
+    };
+    const tick = () => {
+      if (step >= order.length) { if (cap) cap.innerHTML += ' <span class="muted">· 이번 주 끝</span>'; $('#rp-skip', body)?.remove(); return; }
+      show(order[step++]);
+      rpTimer = setTimeout(tick, 900);
+    };
+    $('#rp-skip', body).onclick = () => { clearTimeout(rpTimer); while (step < order.length) show(order[step++], true); $('#rp-skip', body)?.remove(); if (cap) cap.textContent = '이번 주 전체 결과'; };
+    rpTimer = setTimeout(tick, 300);
   }
 
   // ---------- 자동 진행 ----------
@@ -543,6 +627,7 @@ const UI = (() => {
         const o = Game.ovr();
         const btns = d.offers.map((of, i) => ({ label: `${Game.teamInfo(of.team).name}<small>계약금 ${Game.usd(of.bonus)} (약 ${Game.won(of.bonus * USD)})</small>`, onClick: () => done(i) }));
         btns.push({ label: 'KBO 신인 드래프트 참가', cls: d.offers.length ? 'sub' : '', onClick: () => done('KBO') });
+        if (d.uni != null) btns.push({ label: `대학 진학<small>${UNIVS[d.uni].name} 입학 제안</small>`, cls: 'sub', onClick: () => done('UNI') });
         sheet({ title: '진로를 정할 차례예요', body: `<p>고교 마지막 여름이 끝났어요.</p><div class="kv"><span>종합 능력치</span><b>${o}</b></div><div class="kv"><span>KBO 스카우트 관심</span><b>${Math.round(S.hs.scoutK)}</b></div><div class="kv"><span>MLB 스카우트 관심</span><b>${Math.round(S.hs.scoutM)}</b></div><p>${d.offers.length ? `메이저리그 구단 ${d.offers.length}곳에서 계약을 제안했어요.` : '메이저리그 구단의 제안은 없었어요.'}</p>`, buttons: btns });
         break;
       }
@@ -553,10 +638,34 @@ const UI = (() => {
         sheet({ title: '신인 드래프트', body, buttons: [{ label: '계약하기', onClick: () => done() }] });
         break;
       }
-      case 'nego': sheet({ title: `${S.year} 연봉 협상`, body: `<div class="kv"><span>작년 연봉</span><b>${Game.won(d.prev)}</b></div><div class="kv"><span>작년 WAR</span><b>${d.war}</b></div><div class="kv"><span>구단 제시액</span><b>${Game.won(d.offer)}</b></div><p class="hint">더 요구하면 15% 인상을 노려볼 수 있지만, 실패하면 멘탈이 떨어져요.</p>`, row: true, buttons: [{ label: '더 요구하기', cls: 'sub', onClick: () => done('ask') }, { label: '수락', onClick: () => done('ok') }] }); break;
+      case 'unidraft':
+        sheet({ title: '얼리 드래프트', body: `<p>대학 2학년은 KBO 얼리 드래프트에 나갈 수 있어요.</p><div class="kv"><span>종합 능력치</span><b>${Game.ovr()}</b></div><p class="hint">지명을 못 받아도 4학년 때 다시 도전할 수 있어요.</p>`, row: true, buttons: [{ label: '4학년까지 다닌다', cls: 'sub', onClick: () => done('stay') }, { label: '신청한다', onClick: () => done('apply') }] });
+        break;
+      case 'undrafted': {
+        const it = Game.teamInfo(d.indy);
+        const btns = [];
+        if (d.stage === 'HS') btns.push({ label: `대학 진학<small>${UNIVS[d.uni].name} 입학 제안</small>`, onClick: () => done('UNI') });
+        if (d.stage === 'UNI2') btns.push({ label: '4학년 드래프트에 다시 도전', onClick: () => done('STAY') });
+        else btns.push({ label: `독립리그 입단<small>${it.name} · 성적을 내면 신고선수로 프로 입단</small>`, cls: d.stage === 'HS' ? 'sub' : '', onClick: () => done('INDY') });
+        sheet({ title: '지명을 받지 못했어요', body: `<p>${S.year + 1} KBO 신인 드래프트에서 끝내 이름이 불리지 않았어요.</p><p>여기서 끝낼 수는 없어요. 어떻게 할까요?</p>`, buttons: btns });
+        break;
+      }
+      case 'tryout': {
+        const t = Game.teamInfo(d.team);
+        sheet({ title: '프로 구단의 연락', body: `<div class="draft" style="background:${t.c1}"><small>신고선수(육성선수) 계약 제안</small><b>${t.name}</b></div><p>독립리그에서의 활약을 지켜봤다고 해요. 연봉 3,000만원, 퓨처스(2군)부터 시작해요.</p>`, row: true, buttons: [{ label: '거절', cls: 'sub', onClick: () => done('no') }, { label: '계약한다', onClick: () => done('yes') }] });
+        break;
+      }
+      case 'indyAsk': sheet({ title: '꿈을 계속 좇을까?', body: `<p>${S.age}세. 독립리그에서 또 한 시즌이 끝났어요.</p><p>한 시즌 더 도전할까요?</p>`, row: true, buttons: [{ label: '꿈을 접는다', cls: 'danger', onClick: () => done('retire') }, { label: '한 시즌 더', onClick: () => done('stay') }] }); break;
+      case 'indyEnd': sheet({ title: '마지막 시즌', body: '<p>프로의 문은 끝내 열리지 않았어요. 그래도 끝까지 그라운드에 섰어요.</p>', buttons: [{ label: '은퇴', onClick: () => done() }] }); break;
+      case 'nego': sheet({ title: `${S.year} 연봉 협상`, body: `${d.agent ? '<p class="small muted">에이전트가 협상 테이블에 함께 앉았어요.</p>' : ''}<div class="kv"><span>작년 연봉</span><b>${Game.won(d.prev)}</b></div><div class="kv"><span>작년 WAR</span><b>${d.war}</b></div><div class="kv"><span>구단 제시액</span><b>${Game.won(d.offer)}</b></div><p class="hint">더 요구하면 15% 인상을 노려볼 수 있지만, 실패하면 멘탈이 떨어져요.</p>`, row: true, buttons: [{ label: '더 요구하기', cls: 'sub', onClick: () => done('ask') }, { label: '수락', onClick: () => done('ok') }] }); break;
       case 'fa': {
         const btns = d.offers.map((of, i) => { const t = Game.teamInfo(of.team); return { label: of.lg === 'KBO' ? `${t.name}<small>${of.years}년 총액 ${Game.won(of.total)} · 계약금 ${Game.won(of.bonus)}</small>` : `${t.name} (MLB)<small>${of.years}년 총액 ${Game.usd(of.aav * of.years)} · 연 ${Game.usd(of.aav)}</small>`, cls: i ? 'sub' : '', onClick: () => done(i) }; });
         sheet({ title: 'FA 자격을 얻었어요', body: `<p>${S.phase === 'KBO' && S.contract.kind === 'annual' ? 'KBO 1군 7시즌을 채웠어요.' : '계약이 끝나 FA 시장에 나왔어요.'} 어느 팀과 계약할까요?</p>`, buttons: btns });
+        break;
+      }
+      case 'choice': {
+        const c2 = Game.choiceInfo(d.id);
+        sheet({ title: c2.title, body: `<p class="pre">${esc(c2.text)}</p>`, buttons: c2.opts.map((o, i) => ({ label: esc(o.label), cls: 'sub opt', onClick: () => done(i) })) });
         break;
       }
       case 'invest': sheet({ title: '투자 제안', body: `<p>지인이 ${Game.won(d.amt)} 투자를 권해요. 오를 수도, 날릴 수도 있어요.</p>`, row: true, buttons: [{ label: '거절', cls: 'sub', onClick: () => done('no') }, { label: '투자', cls: 'danger', onClick: () => done('yes') }] }); break;
@@ -600,7 +709,13 @@ const UI = (() => {
         b.onclick = (e) => {
           const x = e.target.closest('[data-h]'); if (!x || x.disabled) return;
           const a = x.dataset.h; close();
-          if (a === 'call') { const res = Game.contact(id); talk(h, [res.line], `호감 +${res.gain}`, () => heroDetail(id)); }
+          if (a === 'call') {
+            const res = Game.contact(id);
+            sheet({
+              title: h.name, body: `<div class="hd-ph" style="aspect-ratio:1/1;max-height:30vh">${h.name.slice(-2)}${photo(h.id)}</div><div class="bubble">${esc(res.line)}</div><p class="small muted">어떻게 답할까요?</p>`,
+              buttons: REPLY_TONES.map((t) => ({ label: t.label, cls: 'sub opt', onClick: () => { const r2 = Game.reply(id, t.id); talk(h, [r2.text], `${r2.like ? '반응이 좋아요! ' : ''}호감 +${r2.gain}`, () => heroDetail(id)); } })),
+            });
+          }
           else if (a === 'date') datePicker(h);
           else if (a === 'gift') giftPicker(h);
           else if (a === 'confess') { const ok = Game.confess(id); talk(h, ok ? ['사실 나도 같은 마음이었어요.', '오늘부터 1일이에요.'] : ['미안해요, 아직은 잘 모르겠어요.', '조금만 더 시간을 줄래요?'], ok ? '연인이 됐어요!' : '호감 -10', render); }
@@ -617,7 +732,7 @@ const UI = (() => {
     const off = Game.isOffseason();
     sheet({
       title: `${h.name}와 어디 갈까요?`, dismiss: true,
-      body: `<div class="list">${DATE_PLACES.map((p) => { const why = p.needCar && !S.car ? '차가 있어야 해요' : p.offseason && !off ? '비시즌에만 가능' : S.money < p.cost ? '돈이 부족해요' : ''; return `<button class="li" data-p="${p.id}" ${why ? 'disabled' : ''}><div class="tx"><b>${p.name}${h.fav === p.id ? ' ♥' : ''}</b><small>${why || `피로 -${p.cond}`}</small></div><span class="val">${Game.won(p.cost)}</span></button>`; }).join('')}</div><p class="hint">♥ 표시는 ${h.name}이(가) 좋아하는 곳이에요.</p>`,
+      body: `<div class="list">${DATE_PLACES.filter((p) => !p.special || Game.relStage(S.rel[h.id].aff, h.id) >= 3).map((p) => { const why = p.needCar && !S.car ? '차가 있어야 해요' : p.offseason && !off ? '비시즌에만 가능' : S.money < p.cost ? '돈이 부족해요' : ''; return `<button class="li ${p.special ? 'special' : ''}" data-p="${p.id}" ${why ? 'disabled' : ''}><div class="tx"><b>${p.name}${h.fav === p.id ? ' ♥' : ''}</b><small>${why || (p.special ? '둘만의 밤 · 피로 +35 · 멘탈 +25' : `피로 -${p.cond}`)}</small></div><span class="val">${Game.won(p.cost)}</span></button>`; }).join('')}</div><p class="hint">♥ 표시는 ${h.name}이(가) 좋아하는 곳이에요.</p>`,
       buttons: [{ label: '취소', cls: 'sub' }],
       onRender: (b, close) => { b.onclick = (e) => { const x = e.target.closest('[data-p]'); if (!x || x.disabled) return; close(); runWeek('date', { hid: h.id, place: x.dataset.p }); }; },
     });

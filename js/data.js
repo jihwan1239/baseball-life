@@ -115,6 +115,7 @@ const DATE_PLACES = [
   { id: 'dining', name: '파인다이닝', cost: 600000, aff: 8, cond: 4 },
   { id: 'drive',  name: '바다 드라이브', cost: 300000, aff: 9, cond: 6, needCar: true },
   { id: 'trip',   name: '해외 여행', cost: 15000000, aff: 18, cond: 15, offseason: true },
+  { id: 'night',  name: '특급 데이트', cost: 600000, aff: 12, cond: 0, special: true },
 ];
 
 const GIFTS = [
@@ -205,3 +206,169 @@ function enName() {
 
 const USD = 1400; // 게임 내 고정 환율 (1달러 = 1,400원)
 const MONTHS = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+
+// ===== 선택형 이벤트 (인터뷰, 대화) =====
+// fx: mental, fame, fat, money, attr(주 능력치 +), aff(연인 호감), scout, injury(주), flag
+const CHOICES = [
+  {
+    id: 'hero_interview', pro: true, cond: (S, c) => c.perf > 2.2,
+    title: '수훈선수 인터뷰', text: '오늘 경기 수훈선수로 뽑혔다. 기자가 마이크를 내민다.\n"오늘 활약의 비결이 뭘까요?"',
+    opts: [
+      { label: '"동료들이 만들어준 찬스였어요."', fx: { mental: 3, fame: 2, trust: 3 }, msg: '겸손한 대답에 팬들이 호감을 보였다. 덕아웃 분위기도 좋아졌다.' },
+      { label: '"이제 시작입니다. 더 보여드릴게요."', fx: { fame: 5 }, msg: '자신감 넘치는 한마디가 화제가 됐다.', risk: { p: 0.3, fx: { mental: -5 }, msg: '다음 날 부진하자 "말만 앞선다"는 댓글이 쏟아졌다.' } },
+      { label: '"팬분들 응원 덕분이에요!"', fx: { fame: 3, mental: 2 }, msg: '응원석에서 큰 함성이 터졌다.' },
+    ],
+  },
+  {
+    id: 'slump_q', pro: true, cond: (S, c) => c.perf < -1.2,
+    title: '부진에 대한 질문', text: '경기 후 기자가 묻는다.\n"최근 부진이 길어지는데, 스스로 어떻게 보세요?"',
+    opts: [
+      { label: '"핑계 대지 않겠습니다. 제가 부족했어요."', fx: { mental: -2, fame: 2, trust: 3 }, msg: '솔직한 태도에 팬들이 응원 메시지를 보내왔다.' },
+      { label: '"컨디션 문제일 뿐이에요. 금방 올라옵니다."', fx: { mental: 3, fame: -1 }, msg: '마음은 편해졌지만, 일부 팬들은 아쉬워했다.' },
+      { label: '인터뷰를 정중히 사양한다', fx: { mental: 4, fame: -2 }, msg: '조용히 경기장을 빠져나왔다. 생각을 정리할 시간이 필요했다.' },
+    ],
+  },
+  {
+    id: 'coach_rest', pro: true, cond: (S) => S.fat > 62,
+    title: '감독님 면담', text: '감독님이 조용히 불렀다.\n"요즘 많이 지쳐 보이는데, 이번 주는 좀 쉬어갈래?"',
+    opts: [
+      { label: '"네, 몸부터 추스르겠습니다."', fx: { fat: -25, mental: 2 }, msg: '푹 쉬고 나니 몸이 한결 가벼워졌다.' },
+      { label: '"괜찮습니다. 뛰겠습니다."', fx: { fame: 2, mental: 2, trust: 5 }, msg: '감독님이 고개를 끄덕였다. 투지를 인정받았다.', risk: { p: 0.25, fx: { injury: 2 }, msg: '무리한 탓에 결국 몸에 탈이 났다.' } },
+    ],
+  },
+  {
+    id: 'team_dinner', pro: true, cond: () => true,
+    title: '선배의 회식 초대', text: '고참 선배가 원정 숙소 근처 고깃집으로 부른다.\n"오늘 다 같이 밥 먹자. 너도 와."',
+    opts: [
+      { label: '참석한다', fx: { mental: 6, fat: 4, attr: 0.8, trust: 2 }, msg: '선배에게 들은 노하우가 꽤 쓸모 있었다.' },
+      { label: '정중히 거절하고 개인 훈련', fx: { attr: 1.3, mental: -2 }, msg: '혼자 남아 스윙을 돌렸다. 조금은 외로웠다.' },
+    ],
+  },
+  {
+    id: 'fan_sign', pro: true, cond: (S) => S.fame >= 15,
+    title: '식당에서 만난 팬', text: '밥을 먹는데 어린 팬과 아버지가 조심스럽게 다가온다.\n"사인 한 장만 받을 수 있을까요?"',
+    opts: [
+      { label: '사인에 사진까지 흔쾌히', fx: { fame: 2, mental: 3 }, msg: '아이가 사인을 품에 안고 활짝 웃었다.' },
+      { label: '식사 중이라 양해를 구한다', fx: {}, msg: '팬은 아쉬워하며 돌아갔다.', risk: { p: 0.35, fx: { fame: -4 }, msg: 'SNS에 "불친절했다"는 후기가 올라왔다.' } },
+    ],
+  },
+  {
+    id: 'youtube', pro: true, cond: (S) => S.fame >= 30,
+    title: '유튜브 출연 제안', text: '구독자 200만 스포츠 채널에서 출연 요청이 왔다.',
+    opts: [
+      { label: '출연한다', fx: { fame: 4, fat: 4, money: 'yt' }, msg: '영상이 인기 급상승에 올랐다. 출연료도 두둑했다.' },
+      { label: '시즌 중엔 야구만 하겠다', fx: { mental: 2 }, msg: '거절했다. 지금은 야구에 집중할 때다.' },
+    ],
+  },
+  {
+    id: 'agent', pro: true, cond: (S) => !S.flags.agent && !S.flags.agentNo && S.fame >= 10,
+    title: '에이전트 계약 제안', text: '대형 에이전시가 연봉 협상과 FA를 맡겠다고 한다.\n수수료는 연봉의 3%.',
+    opts: [
+      { label: '계약한다', fx: { flag: 'agent' }, msg: '이제 협상 테이블에는 에이전트가 앉는다. 연봉 협상과 FA에서 유리해진다.' },
+      { label: '혼자 하겠다', fx: { flag: 'agentNo' }, msg: '수수료를 아끼기로 했다.' },
+    ],
+  },
+  {
+    id: 'rookie_help', pro: true, cond: (S) => S.age >= 24,
+    title: '후배의 부탁', text: '올해 들어온 신인이 쭈뼛거리며 다가온다.\n"선배님, 훈련 끝나고 조금만 봐주실 수 있을까요?"',
+    opts: [
+      { label: '시간 내서 같이 훈련한다', fx: { fat: 4, mental: 4, fame: 1 }, msg: '후배의 눈빛이 달라졌다. 가르치면서 나도 배운 게 있었다.' },
+      { label: '"다음에 하자."', fx: {}, msg: '후배는 꾸벅 인사하고 돌아갔다.' },
+    ],
+  },
+  {
+    id: 'rival', pro: true, cond: (S) => S.fame >= 20,
+    title: '상대 선수의 도발', text: '다음 상대 팀 선수가 인터뷰에서 나를 콕 집어 말했다.\n"솔직히 과대평가된 선수죠."',
+    opts: [
+      { label: '"그라운드에서 보여드리죠."', fx: { fame: 4, mental: 2 }, msg: '맞대결 기사가 쏟아졌다. 다음 경기 예매가 매진됐다.', risk: { p: 0.3, fx: { mental: -5 }, msg: '그 경기에서 침묵하자 조롱이 이어졌다.' } },
+      { label: '무시한다', fx: { mental: 2 }, msg: '신경 쓰지 않기로 했다.' },
+      { label: 'SNS에 유쾌하게 받아친다', fx: { fame: 3 }, msg: '센스 있는 답글이 화제가 됐다.' },
+    ],
+  },
+  {
+    id: 'partner_call', pro: true, cond: (S) => S.partner && !S.spouse,
+    title: '연인의 서운함', text: '원정이 길어져 연락이 뜸했더니 메시지가 왔다.\n"요즘 많이 바쁘지? 그냥… 목소리 듣고 싶었어."',
+    opts: [
+      { label: '피곤해도 바로 영상통화', fx: { aff: 6, fat: 3, mental: 3 }, msg: '화면 너머로 웃는 얼굴을 보니 피로가 풀렸다.' },
+      { label: '경기 끝나고 길게 답장', fx: { aff: 2 }, msg: '"고마워, 푹 자."라는 답이 왔다.' },
+      { label: '"시즌 중이라 이해해줘."', fx: { aff: -6 }, msg: '"…응, 알겠어." 짧은 답이 왔다.' },
+    ],
+  },
+  {
+    id: 'hs_exam', hs: true, cond: () => true,
+    title: '시험 기간', text: '중간고사가 코앞이다. 감독님은 훈련도 빠지지 말라고 하신다.',
+    opts: [
+      { label: '밤새 공부한다', fx: { mental: 6, fat: 8 }, msg: '성적표를 받은 부모님 얼굴이 밝았다.' },
+      { label: '야간 훈련을 계속한다', fx: { attr: 1.2, mental: -4 }, msg: '성적은 바닥이었지만 방망이 감은 좋아졌다.' },
+      { label: '둘 다 적당히', fx: { attr: 0.5, mental: 2 }, msg: '무난하게 넘겼다.' },
+    ],
+  },
+  {
+    id: 'hs_friend', hs: true, cond: () => true,
+    title: '친구 생일파티', text: '반 친구가 생일파티에 오라고 한다. 오늘은 개인 훈련하려던 날인데.',
+    opts: [
+      { label: '간다', fx: { mental: 8 }, msg: '오랜만에 실컷 웃었다.' },
+      { label: '훈련하러 간다', fx: { attr: 1 }, msg: '"다음엔 꼭 와라." 친구가 아쉬워했다.' },
+    ],
+  },
+  {
+    id: 'hs_coach', hs: true, cond: (S) => S.grade >= 2,
+    title: '감독님의 질문', text: '훈련이 끝나고 감독님이 물었다.\n"너, 프로 가고 싶냐?"',
+    opts: [
+      { label: '"꼭 가겠습니다!"', fx: { mental: 4, scout: 3 }, msg: '감독님이 스카우트들에게 내 얘기를 해주셨다고 한다.' },
+      { label: '"아직 잘 모르겠어요."', fx: { mental: 1 }, msg: '"천천히 생각해 봐라." 감독님이 어깨를 두드렸다.' },
+    ],
+  },
+  {
+    id: 'hs_pain', hs: true, cond: (S, c) => S.fat > 50 && c.tourn,
+    title: '통증을 참고 출전할까?', text: '대회 중인데 어깨가 욱신거린다. 감독님은 아직 모르신다.',
+    opts: [
+      { label: '참고 뛴다', fx: { scout: 4, fame: 1 }, msg: '이를 악물고 경기를 마쳤다.', risk: { p: 0.35, fx: { injury: 3 }, msg: '결국 통증이 심해져 전력에서 이탈했다.' } },
+      { label: '감독님께 솔직히 말씀드린다', fx: { fat: -18 }, msg: '"잘 말했다. 몸이 먼저다." 며칠 쉬기로 했다.' },
+    ],
+  },
+];
+
+// 연락하기 답장 톤 (사람마다 좋아하는 톤이 다름)
+const REPLY_TONES = [
+  { id: 'warm', label: '다정하게 받아준다' },
+  { id: 'fun', label: '장난스럽게 대답한다' },
+  { id: 'base', label: '오늘 경기 이야기를 꺼낸다' },
+];
+const HERO_TONE = { minji: 'warm', chaerin: 'fun', jisu: 'base', seoyun: 'warm', ella: 'fun' };
+
+// ===== 대학 / 독립리그 =====
+const UNIVS = [
+  { name: '연세대', region: '서울', str: 74, c1: '#003876', c2: '#ffffff' },
+  { name: '고려대', region: '서울', str: 74, c1: '#8b0029', c2: '#ffffff' },
+  { name: '성균관대', region: '서울', str: 72, c1: '#1d7a3a', c2: '#f2c230' },
+  { name: '한양대', region: '서울', str: 71, c1: '#0e4a84', c2: '#ffffff' },
+  { name: '동국대', region: '서울', str: 70, c1: '#e8761c', c2: '#ffffff' },
+  { name: '중앙대', region: '서울', str: 68, c1: '#1b5fae', c2: '#e8463c' },
+  { name: '단국대', region: '경기', str: 69, c1: '#003f8a', c2: '#ffffff' },
+  { name: '건국대', region: '서울', str: 67, c1: '#036b3f', c2: '#ffffff' },
+  { name: '경희대', region: '서울', str: 66, c1: '#8b1a2a', c2: '#ffffff' },
+  { name: '홍익대', region: '서울', str: 66, c1: '#1f2a6b', c2: '#ffffff' },
+  { name: '동아대', region: '부산', str: 66, c1: '#1e3c72', c2: '#ffffff' },
+  { name: '인하대', region: '인천', str: 65, c1: '#00427a', c2: '#7fd1ff' },
+  { name: '원광대', region: '전북', str: 64, c1: '#2d5aa0', c2: '#ffffff' },
+];
+const INDY_TEAMS = [
+  { id: 'I_YC', name: '연천 미라클', short: '연천', c1: '#0b5ea8', c2: '#f2c230', park: '연천 베이스볼파크' },
+  { id: 'I_PJ', name: '파주 챌린저스', short: '파주', c1: '#2b2b2b', c2: '#e8463c', park: '파주 구장' },
+  { id: 'I_SN', name: '성남 맥파이스', short: '성남', c1: '#203a6b', c2: '#ffffff', park: '성남 탄천구장' },
+  { id: 'I_SW', name: '수원 파인이그스', short: '수원', c1: '#2e7d32', c2: '#ffffff', park: '수원 구장' },
+  { id: 'I_GP', name: '가평 웨일스', short: '가평', c1: '#1b75bb', c2: '#ffffff', park: '가평 구장' },
+];
+
+// 특급 데이트가 끝난 뒤 나오는 문구
+const NIGHT_LINES = [
+  '그날 밤, 둘 사이에 더 이상 말은 필요 없었다.',
+  '다음 날 아침, 커튼 사이로 들어온 햇살이 유난히 눈부셨다.',
+  '"오늘은… 집에 안 가도 돼." 그녀가 귓가에 작게 속삭였다.',
+  '창밖 도시의 불빛이 하나둘 꺼져 갔다. 우리 방 불은 조금 더 오래 켜져 있었다.',
+  '다음 날 훈련장에서 동료가 물었다. "너 오늘 왜 이렇게 실실 웃냐?"',
+  '셔츠 깃에 남은 립스틱 자국. 세탁은… 내일 하자.',
+  '"벌써 아침이야?" 둘 다 알람 소리를 못 들은 척했다.',
+  '그날 밤 일은 둘만의 비밀로 하기로 했다. 그녀의 얼굴이 빨개졌다.',
+];

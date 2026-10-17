@@ -30,14 +30,15 @@ const Game = (() => {
     if (v >= 90) return 'S'; if (v >= 80) return 'A'; if (v >= 70) return 'B'; if (v >= 60) return 'C';
     if (v >= 50) return 'D'; if (v >= 40) return 'E'; if (v >= 30) return 'F'; return 'G';
   }
-  const LEVEL_LABEL = { KBO1: '1군', KBO2: '퓨처스(2군)', RK: '루키리그', A: '싱글A', 'A+': '하이싱글A', AA: '더블A', AAA: '트리플A', MLB: '메이저리그' };
+  const LEVEL_LABEL = { HS: '고교', UNI: '대학', INDY: '독립리그', KBO1: '1군', KBO2: '퓨처스(2군)', RK: '루키리그', A: '싱글A', 'A+': '하이싱글A', AA: '더블A', AAA: '트리플A', MLB: '메이저리그' };
   const MILB_LADDER = ['RK', 'A', 'A+', 'AA', 'AAA', 'MLB'];
   const MILB_UP = { RK: 47, A: 51, 'A+': 55, AA: 59, AAA: 64 };
-  const LEVEL_L = { KBO1: 60, KBO2: 48, RK: 41, A: 46, 'A+': 50, AA: 55, AAA: 60, MLB: 67 };
+  const LEVEL_L = { INDY: 45, KBO1: 60, KBO2: 48, RK: 41, A: 46, 'A+': 50, AA: 55, AAA: 60, MLB: 67 };
   const POS_LABEL = { B: '타자', P: '투수', TW: '이도류' };
 
   const SEASON = {
     KBO: { reg: [11, 34], camp: [4, 7], post: [35, 37], end: 38, awards: 39, fa: 41, retire: 42, nego: 1, keys: [11, 15, 19, 23, 27, 31, 34], allstar: 27 },
+    INDY: { reg: [14, 35], camp: [8, 10], post: [99, 99], end: 37, awards: -1, fa: -1, retire: 39, nego: -1, keys: [], allstar: -1 },
     MLB: { reg: [12, 38], camp: [6, 10], post: [39, 42], end: 43, awards: 44, fa: 45, retire: 46, nego: 2, keys: [12, 16, 20, 24, 29, 33, 38], allstar: 28 },
   };
   const HS_CAL = {
@@ -48,6 +49,20 @@ const Game = (() => {
     29: { t: 'tourn', name: '봉황대기', start: true }, 30: { t: 'tourn' }, 31: { t: 'tourn' },
     37: { t: 'tourn', name: '전국체전', start: true, short: true },
   };
+  const UNI_CAL = {
+    9: { t: 'league', nm: 'U-리그' }, 10: { t: 'league', nm: 'U-리그' }, 12: { t: 'league', nm: 'U-리그' }, 13: { t: 'league', nm: 'U-리그' }, 14: { t: 'league', nm: 'U-리그' },
+    16: { t: 'tourn', name: '전국대학야구선수권', start: true }, 17: { t: 'tourn' }, 18: { t: 'tourn' },
+    21: { t: 'league', nm: 'U-리그' }, 22: { t: 'league', nm: 'U-리그' },
+    25: { t: 'tourn', name: 'U-리그 왕중왕전', start: true }, 26: { t: 'tourn' }, 27: { t: 'tourn' },
+    29: { t: 'tourn', name: '대통령기 대학야구', start: true }, 30: { t: 'tourn' }, 31: { t: 'tourn' },
+    37: { t: 'tourn', name: '전국체전 대학부', start: true, short: true },
+  };
+  const amateur = () => S.phase === 'HS' || S.phase === 'UNI';
+  const amSchool = () => (S.phase === 'UNI' ? UNIVS[S.uni] : SCHOOLS[S.school]);
+  const amPool = () => (S.phase === 'UNI' ? UNIVS.filter((u, j) => j !== S.uni) : SCHOOLS.filter((x, j) => j !== S.school));
+  const amCal = () => (S.phase === 'UNI' ? UNI_CAL : HS_CAL);
+  const draftYear = () => (S.phase === 'HS' && S.grade === 3) || (S.phase === 'UNI' && (S.grade === 2 || S.grade === 4));
+  const isRookie = () => S.flags && S.year === S.flags.proYear;
   const ROUNDS = ['1회전', '2회전', '16강', '8강', '4강', '결승'];
 
   // ---------- 날짜 ----------
@@ -179,10 +194,21 @@ const Game = (() => {
   // ---------- 시즌 차트 기록 ----------
   const PKEYS = Object.keys(PITCHES);
   function newChart() {
-    if (S.chart && (S.chart.spray.length || S.chart.pitches.length)) S.chartPrev = Object.assign({ label: S.chart.label }, S.chart);
-    S.chart = { label: `${S.year} ${S.phase === 'HS' ? '고교' : (LEVEL_LABEL[S.level] || '')}`, spray: [], pitches: [] };
+    if (S.chart && (S.chart.spray.length || S.chart.pitches.length)) S.chartPrev = Object.assign({}, S.chart);
+    S.chart = { year: S.year, lv: [], spray: [], pitches: [] };
   }
-  function recOK() { return S && S.chart && !(S.wk && S.wk.postMode); }
+  function recOK() {
+    if (!S || !S.chart || (S.wk && S.wk.postMode)) return false;
+    const k = amateur() ? S.phase : S.level;
+    S.chart.lv = S.chart.lv || [];
+    if (k && !S.chart.lv.includes(k)) S.chart.lv.push(k);
+    return true;
+  }
+  function chartLabel(ch) {
+    if (!ch) return '';
+    if (ch.lv) return `${ch.year} ${ch.lv.map((k) => LEVEL_LABEL[k] || k).join(' · ')}`;
+    return ch.label || '';
+  }
   function gaussC() { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
   function fenceDist(a) { return 99 + 23 * Math.cos(Math.abs(a) * Math.PI / 90); }
   // 타구: [각도(-45 좌측 ~ 45 우측), 거리(m), 결과(0아웃 1단타 2 2루타 3 3루타 4홈런), 타구질(0땅볼 1라이너 2뜬공 3팝업)]
@@ -208,6 +234,7 @@ const Game = (() => {
       else { q = 3; a = cl(gaussC() * 22); d = rnd(12, 34); }
     }
     S.chart.spray.push([Math.round(a), Math.round(d), r, q]);
+    if (S.wk && S.wk.anim) S.wk.anim.spray.push([Math.round(a), Math.round(d), r, q, S.wk.gi || 0]);
     if (S.chart.spray.length > 900) S.chart.spray.shift();
   }
   // 투구: [u*100 (포수 시점 좌우), v*100 (위- 아래+), 구종번호, 결과(0볼 1스트라이크 2인플레이 3삼진 4볼넷)]
@@ -250,7 +277,9 @@ const Game = (() => {
       u += gaussC() * sig; v += gaussC() * sig;
       if (inZone && code >= 1) { u = clamp(u, -1, 1); v = clamp(v, -1, 1); }
       if (code === 4 || (code === 0)) { if (Math.abs(u) <= 1 && Math.abs(v) <= 1) { if (Math.abs(u) > Math.abs(v)) u = Math.sign(u || 1) * rnd(1.05, 1.4); else v = Math.sign(v || 1) * rnd(1.05, 1.4); } }
-      S.chart.pitches.push([Math.round(clamp(u, -1.9, 1.9) * 100), Math.round(clamp(v, -1.9, 1.9) * 100), PKEYS.indexOf(t), code]);
+      const pt = [Math.round(clamp(u, -1.9, 1.9) * 100), Math.round(clamp(v, -1.9, 1.9) * 100), PKEYS.indexOf(t), code];
+      S.chart.pitches.push(pt);
+      if (S.wk && S.wk.anim) S.wk.anim.pitches.push(pt.concat(S.wk.gi || 0));
     }
     if (S.chart.pitches.length > 4500) S.chart.pitches.splice(0, S.chart.pitches.length - 4500);
   }
@@ -311,7 +340,7 @@ const Game = (() => {
       year: 2027, week: 8, age: 16, phase: 'HS', grade: 1,
       team: null, level: null,
       pot: t.pot, caps: t.caps, bat: t.bat, pit: t.pit,
-      fat: 10, mental: 60, fame: 0, money: 0,
+      fat: 10, mental: 60, fame: 0, money: 0, trust: 50,
       house: 'home', houses: ['home'], cars: [], car: null,
       contract: null, service: 0, mlbService: 0, levelWeeks: 0, topWeeks: 0,
       st: blankStats(), career: [], awards: [], trophies: [],
@@ -332,33 +361,33 @@ const Game = (() => {
   }
   function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* 저장 실패 무시 */ } }
   function load() {
-    try { const s = localStorage.getItem(SAVE_KEY); if (!s) return null; S = JSON.parse(s); if (!S.chart) newChart(); if (!S.fpos) S.fpos = 'RF'; return S; } catch (e) { return null; }
+    try { const s = localStorage.getItem(SAVE_KEY); if (!s) return null; S = JSON.parse(s); if (!S.chart) newChart(); if (!S.fpos) S.fpos = 'RF'; if (S.trust == null) S.trust = 50; return S; } catch (e) { return null; }
   }
   function hasSave() { try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { return false; } }
   function wipe() { try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* */ } S = null; }
   function addLog(t) { S.log.unshift({ d: dateStr(), t }); if (S.log.length > 60) S.log.length = 60; }
 
   // ---------- 팀/구장 정보 ----------
-  function teamInfo(id) { return KBO_TEAMS.find((t) => t.id === id) || MLB_TEAMS.find((t) => t.id === id); }
+  function teamInfo(id) { return KBO_TEAMS.find((t) => t.id === id) || MLB_TEAMS.find((t) => t.id === id) || INDY_TEAMS.find((t) => t.id === id); }
   function myColors() {
-    if (S.phase === 'HS') { const s = SCHOOLS[S.school]; return { c1: s.c1, c2: s.c2, name: s.name, short: s.name, park: s.name + ' 운동장' }; }
+    if (amateur()) { const s = amSchool(); return { c1: s.c1, c2: s.c2, name: s.name, short: s.name, park: s.name + ' 운동장' }; }
     const t = teamInfo(S.team);
     return { c1: t.c1, c2: t.c2, name: t.name, short: t.short || t.id, park: t.park };
   }
   function affiliation() {
-    if (S.phase === 'HS') return `${SCHOOLS[S.school].name} ${S.grade}학년`;
+    if (amateur()) return `${amSchool().name} ${S.grade}학년`;
     if (S.phase === 'RETIRED') return '은퇴';
     return `${teamInfo(S.team).name} · ${LEVEL_LABEL[S.level]}`;
   }
-  function league() { return S.phase === 'MLB' ? 'MLB' : 'KBO'; }
+  function league() { return S.phase === 'MLB' ? 'MLB' : S.phase === 'INDY' ? 'INDY' : 'KBO'; }
   function seasonCfg() { return SEASON[league()]; }
   function inRegular() {
-    if (S.phase === 'HS' || S.phase === 'RETIRED') return false;
+    if (amateur() || S.phase === 'RETIRED') return false;
     const c = seasonCfg();
     return S.week >= c.reg[0] && S.week <= c.reg[1];
   }
   function isOffseason() {
-    if (S.phase === 'HS') return S.week >= 40 || S.week < 8;
+    if (amateur()) return S.week >= 40 || S.week < 8;
     const c = seasonCfg();
     return S.week > c.post[1] || S.week < c.reg[0] - 1;
   }
@@ -366,19 +395,20 @@ const Game = (() => {
   // ---------- 역할 ----------
   function batRole() {
     if (!isBatter()) return null;
-    if (S.phase === 'HS') return 'starter';
-    const thr = S.level === 'KBO1' ? 56 : S.level === 'MLB' ? 63 : 0;
-    return batOVR() >= thr ? 'starter' : 'bench';
+    if (amateur() || S.phase === 'INDY') return 'starter';
+    const thr = S.level === 'KBO1' ? (isRookie() ? 62 : 57) : S.level === 'MLB' ? 63 : 0;
+    return batOVR() + trustAdj() >= thr ? 'starter' : 'bench';
   }
   function pitRole() {
     if (!isPitcher()) return null;
-    if (S.phase === 'HS') return 'SP';
-    const thr = S.level === 'KBO1' ? 57 : S.level === 'MLB' ? 63 : 0;
-    const o = pitOVR();
+    if (amateur()) return 'SP';
+    const thr = S.level === 'KBO1' ? (isRookie() ? 62 : 58) : S.level === 'MLB' ? 63 : 0;
+    const o = pitOVR() + trustAdj();
     if (S.pit.sta >= (S.pos === 'TW' ? 45 : 50) && o >= thr) return 'SP';
     if (o >= thr + 8 && S.pit.stf >= 60) return 'CL';
     return 'RP';
   }
+  function trustAdj() { return ((S.trust == null ? 50 : S.trust) - 50) / 10; }
   function roleLabel() {
     const r = [];
     const br = batRole(), pr = pitRole();
@@ -426,9 +456,9 @@ const Game = (() => {
     let m = ageMult();
     if (S.fat > 70) m *= 0.55; else if (S.fat > 50) m *= 0.82;
     m *= 0.9 + S.mental / 500;
-    const c = S.phase !== 'HS' && S.phase !== 'RETIRED' ? seasonCfg() : null;
+    const c = !amateur() && S.phase !== 'RETIRED' ? seasonCfg() : null;
     if (c && S.week >= c.camp[0] && S.week <= c.camp[1]) m *= 1.3;
-    if (S.phase === 'HS' && (S.week >= 44 || S.week < 8)) m *= 1.15;
+    if (amateur() && (S.week >= 44 || S.week < 8)) m *= 1.15;
     return m;
   }
   const PITCH_ORDER = ['SL', 'CU', 'CH', 'FS', 'FC', 'SI', 'SW'];
@@ -474,18 +504,20 @@ const Game = (() => {
   }
 
   function actions() {
-    const pro = S.phase !== 'HS';
+    const pro = S.phase === 'KBO' || S.phase === 'MLB';
     const list = [
       { id: 'train', name: '훈련', icon: 'train', sub: '능력치를 키운다', disabled: S.injury > 0 ? '부상 중' : null },
       { id: 'rest', name: '휴식', icon: 'rest', sub: '피로 회복, 멘탈 회복' },
     ];
     if (pro) {
       list.push({ id: 'lesson', name: '개인 레슨', icon: 'star', sub: `효과 1.8배 · ${won(lessonCost())}`, disabled: S.injury > 0 ? '부상 중' : (S.money < lessonCost() ? '돈 부족' : null) });
-      list.push({ id: 'ad', name: '광고 촬영', icon: 'coin', sub: S.fame >= 25 ? `수입 약 ${won(adIncome())}` : '인기 25 이상', disabled: S.fame < 25 ? '인기 부족' : null });
+      const adDone = S.flags.adMonth === S.year * 12 + Math.floor(S.week / 4);
+      list.push({ id: 'ad', name: '광고 촬영', icon: 'coin', sub: S.fame >= 25 ? (inRegular() ? '시즌 중엔 인기·신뢰 하락' : `수입 약 ${won(adIncome())}`) : '인기 25 이상', disabled: S.fame < 25 ? '인기 부족' : adDone ? '이번 달 촬영 완료' : null });
       list.push({ id: 'fan', name: '팬 서비스', icon: 'heart', sub: '인기 ↑ 멘탈 ↑' });
     } else {
       list.push({ id: 'video', name: '영상 분석', icon: 'chart', sub: '선구안/제구 소폭 ↑, 피로 적음' });
-      list.push({ id: 'study', name: '공부', icon: 'cal', sub: '멘탈 ↑ (부모님이 좋아한다)' });
+      if (S.phase === 'HS') list.push({ id: 'study', name: '공부', icon: 'cal', sub: '멘탈 ↑ (부모님이 좋아한다)' });
+      else list.push({ id: 'job', name: '아르바이트', icon: 'coin', sub: '돈 80만원 · 피로 ↑' });
     }
     return list;
   }
@@ -495,7 +527,7 @@ const Game = (() => {
   // ---------- 주간 진행 ----------
   // planWeek: 행동 적용 + 경기 일정 생성, 중요 경기가 있으면 key 반환
   function planWeek(act, sub) {
-    const W = { act, lines: [], gains: [], games: [], key: null, money0: S.money, fame0: S.fame };
+    const W = { act, lines: [], gains: [], games: [], key: null, money0: S.money, fame0: S.fame, anim: { spray: [], pitches: [] } };
     S.wk = W;
     applyAction(act, sub, W);
     buildWeekGames(W);
@@ -518,15 +550,23 @@ const Game = (() => {
     } else if (act === 'study') {
       S.mental = clamp(S.mental + 10, 0, 100); S.fat = clamp(S.fat - 12, 0, 100);
       W.gains = ['멘탈 +10', '피로 소폭 회복']; W.lines.push('공부');
+    } else if (act === 'job') {
+      S.money += 800000; S.fat = clamp(S.fat + 9, 0, 100); S.mental = clamp(S.mental - 1, 0, 100);
+      W.gains = ['아르바이트 +80만원', '피로 +9']; W.lines.push('아르바이트');
     } else if (act === 'ad') {
-      const inc = adIncome(); S.money += inc; S.fame = clamp(S.fame + 1, 0, 100); S.fat = clamp(S.fat + 5, 0, 100);
-      W.gains = [`광고 수입 +${won(inc)}`, '인기 +1']; W.lines.push('광고 촬영');
+      const inc = adIncome(); S.money += inc; S.fat = clamp(S.fat + 5, 0, 100);
+      S.flags.adMonth = S.year * 12 + Math.floor(S.week / 4);
+      if (inRegular()) {
+        S.fame = clamp(S.fame - 8, 0, 100); S.trust = clamp(S.trust - 15, 0, 100);
+        W.gains = [`광고 수입 +${won(inc)}`, '인기 -8', '감독 신뢰 -15'];
+        W.lines.push('시즌 중 광고 촬영. "야구에 집중 안 하냐"는 기사가 났고 감독님 표정이 굳었다.');
+      } else { S.fame = clamp(S.fame + 1, 0, 100); W.gains = [`광고 수입 +${won(inc)}`, '인기 +1']; W.lines.push('광고 촬영'); }
     } else if (act === 'fan') {
       S.fame = clamp(S.fame + 3, 0, 100); S.mental = clamp(S.mental + 5, 0, 100); S.fat = clamp(S.fat + 2, 0, 100);
       W.gains = ['인기 +3', '멘탈 +5']; W.lines.push('팬 사인회');
     } else if (act === 'date') {
       const r = doDate(sub.hid, sub.place);
-      W.gains = r.gains; W.lines.push(`데이트: ${r.place}`); W.dateLine = r.line; W.dateHid = sub.hid;
+      W.gains = r.gains; W.lines.push(`데이트: ${r.place}`); W.dateLine = r.line; W.dateHid = sub.hid; W.dateNarr = !!r.narr;
     }
   }
 
@@ -534,7 +574,7 @@ const Game = (() => {
   function buildWeekGames(W) {
     W.ctx = null;
     if (S.injury > 0) S.injury = Math.max(0, S.injury - 1);
-    if (S.phase === 'HS') return buildHSWeek(W);
+    if (amateur()) return buildHSWeek(W);
     if (S.phase === 'RETIRED') return;
     const c = seasonCfg();
     if (S.week >= c.reg[0] && S.week <= c.reg[1]) return buildRegWeek(W, c);
@@ -542,21 +582,23 @@ const Game = (() => {
   }
 
   function hsTeamLevels(oppStr) {
-    const sc = SCHOOLS[S.school];
+    const sc = amSchool();
+    const base = S.phase === 'UNI' ? 41 : 36;
     const myImpact = (ovr() - 45) * 0.25;
-    const our = 36 + (sc.str - 60) * 0.35 + myImpact * 0.2;
-    const their = 36 + (oppStr - 60) * 0.35;
+    const our = base + (sc.str - 60) * 0.35 + myImpact * 0.2;
+    const their = base + (oppStr - 60) * 0.35;
     return { teamOff: our, teamPit: our, oppOff: their, oppPit: their };
   }
   function buildHSWeek(W) {
-    const cal = HS_CAL[S.week];
+    const cal = amCal()[S.week];
     if (!cal) return;
-    if (S.grade === 3 && S.hs.path === 'MLB' && S.week >= 32) return;
+    if (S.hs.path === 'MLB' && S.week >= 32) return;
+    const uL = S.phase === 'UNI' ? 5 : 0;
     const games = [];
     if (cal.t === 'league') {
       for (let i = 0; i < 2; i++) {
-        const oppSc = pick(SCHOOLS.filter((s, j) => j !== S.school));
-        games.push({ kind: 'hs', label: `주말리그 vs ${oppSc.name}`, opp: { name: oppSc.name, c1: oppSc.c1, c2: oppSc.c2 }, L: 40 + rnd(-2, 3), lv: hsTeamLevels(oppSc.str + rnd(-5, 5)) });
+        const oppSc = pick(amPool());
+        games.push({ kind: 'hs', label: `${cal.nm || '주말리그'} vs ${oppSc.name}`, opp: { name: oppSc.name, c1: oppSc.c1, c2: oppSc.c2 }, L: 40 + uL + rnd(-2, 3), lv: hsTeamLevels(oppSc.str + rnd(-5, 5)) });
       }
     } else {
       if (cal.start) S.hs.tourn = { name: cal.name, round: cal.short ? 3 : 0, alive: true };
@@ -565,9 +607,9 @@ const Game = (() => {
       const n = cal.short ? 3 : 2;
       for (let i = 0; i < n && T.round + i < ROUNDS.length; i++) {
         const rd = T.round + i;
-        const oppSc = pick(SCHOOLS.filter((s, j) => j !== S.school));
+        const oppSc = pick(amPool());
         const oppStr = 62 + rd * 2.8 + rnd(-5, 5);
-        games.push({ kind: 'tourn', round: rd, label: `${T.name} ${ROUNDS[rd]} vs ${oppSc.name}`, opp: { name: oppSc.name, c1: oppSc.c1, c2: oppSc.c2 }, L: 41 + rd * 1.6, lv: hsTeamLevels(oppStr), key: rd >= 3 });
+        games.push({ kind: 'tourn', round: rd, label: `${T.name} ${ROUNDS[rd]} vs ${oppSc.name}`, opp: { name: oppSc.name, c1: oppSc.c1, c2: oppSc.c2 }, L: 41 + uL + rd * 1.6, lv: hsTeamLevels(oppStr), key: rd >= 3 });
       }
     }
     W.games = games;
@@ -597,25 +639,81 @@ const Game = (() => {
     const op = S.level === 'MLB' ? oppStr : L + rnd(-3, 3);
     return { teamOff: my, teamPit: my, oppOff: op, oppPit: op };
   }
+  // KBO 3연전 일정: 10개 팀 라운드로빈(원형 방식), 한 주 = 화~목, 금~일 두 시리즈
+  function roundPairs(r) {
+    const ids = KBO_TEAMS.map((t) => t.id);
+    const others = ids.slice(1);
+    const rot = ((r % 9) + 9) % 9;
+    const list = [ids[0], ...others.slice(rot), ...others.slice(0, rot)];
+    const pairs = [];
+    for (let i = 0; i < 5; i++) {
+      const a = list[i], b = list[9 - i];
+      const flip = (Math.floor(r / 9) + r + i) % 2 === 0;
+      pairs.push(flip ? [a, b] : [b, a]);
+    }
+    return pairs;
+  }
+  function kboRound(week, half) { return (week - SEASON.KBO.reg[0]) * 2 + half + (S.year % 9) * 3; }
+  function weekSeries(week = S.week) {
+    if (S.phase === 'KBO') {
+      const c = SEASON.KBO;
+      if (week < c.reg[0] || week > c.reg[1]) return [];
+      return [0, 1].map((h) => { const pr = roundPairs(kboRound(week, h)).find((p) => p.includes(S.team)); const home = pr[0] === S.team; return { opp: home ? pr[1] : pr[0], home }; });
+    }
+    if (S.phase === 'INDY') {
+      const c = SEASON.INDY;
+      if (week < c.reg[0] || week > c.reg[1]) return [];
+      if (!S.mlbSeries || S.mlbSeries.w !== S.year * 100 + week) {
+        const o = shuffle(INDY_TEAMS.filter((t) => t.id !== S.team)).slice(0, 2);
+        S.mlbSeries = { w: S.year * 100 + week, list: o.map((t, i) => ({ opp: t.id, home: (week + i) % 2 === 0 })) };
+      }
+      return S.mlbSeries.list;
+    }
+    if (S.phase === 'MLB') {
+      if (!S.mlbSeries || S.mlbSeries.w !== S.year * 100 + week) {
+        const o = shuffle(MLB_TEAMS.filter((t) => t.id !== S.team)).slice(0, 2);
+        S.mlbSeries = { w: S.year * 100 + week, list: o.map((t, i) => ({ opp: t.id, home: (week + i) % 2 === 0 })) };
+      }
+      return S.mlbSeries.list;
+    }
+    return [];
+  }
   function buildRegWeek(W, c) {
     ensureTeams();
     const games = [];
-    const gpw = 6;
     const top = S.level === 'KBO1' || S.level === 'MLB';
-    for (let i = 0; i < gpw; i++) {
+    const SER = ['화~목', '금~일'];
+    if (S.phase === 'KBO') W.leaguePairs = [0, 1].map((h) => roundPairs(kboRound(S.week, h)));
+    const series = weekSeries();
+    series.forEach((sr, h) => {
       let opp, oppStr;
       if (S.phase === 'KBO') {
-        const ot = pick(KBO_TEAMS.filter((t) => t.id !== S.team));
-        opp = { id: ot.id, name: ot.name, c1: ot.c1, c2: ot.c2, park: ot.park };
-        oppStr = S.teams[ot.id].str;
+        if (S.level === 'KBO1') {
+          const ot = teamInfo(sr.opp);
+          opp = { id: ot.id, name: ot.name, c1: ot.c1, c2: ot.c2, park: ot.park };
+          oppStr = S.teams[ot.id].str;
+        } else {
+          const ot = pick(KBO_TEAMS.filter((t) => t.id !== S.team));
+          opp = { name: `${ot.short} 퓨처스`, c1: ot.c1, c2: ot.c2 };
+          oppStr = 48;
+        }
+      } else if (S.phase === 'INDY') {
+        const ot = teamInfo(sr.opp);
+        opp = { id: ot.id, name: ot.name, c1: ot.c1, c2: ot.c2 };
+        oppStr = LEVEL_L.INDY + rnd(-3, 3);
       } else {
-        const ot = pick(MLB_TEAMS.filter((t) => t.id !== S.team));
+        const ot = teamInfo(sr.opp);
         opp = S.level === 'MLB' ? { id: ot.id, name: ot.name, c1: ot.c1, c2: ot.c2, park: ot.park } : { name: ot.name.split(' ').pop() + ' 산하 ' + LEVEL_LABEL[S.level], c1: ot.c1, c2: ot.c2 };
         oppStr = S.level === 'MLB' ? rnd(62, 72) : LEVEL_L[S.level];
       }
-      const L = S.level === 'KBO1' ? oppStr : S.level === 'MLB' ? 67 + (oppStr - 67) * 0.5 : LEVEL_L[S.level] + rnd(-2, 2);
-      games.push({ kind: 'reg', label: `vs ${opp.name}`, opp, L, lv: myTeamLevels(oppStr) });
-    }
+      const home = S.level === 'KBO2' ? h === 0 : sr.home;
+      for (let i = 0; i < 3; i++) {
+        const L = S.level === 'KBO1' || S.phase === 'INDY' ? oppStr : S.level === 'MLB' ? 67 + (oppStr - 67) * 0.5 : LEVEL_L[S.level] + rnd(-2, 2);
+        const lv = myTeamLevels(oppStr);
+        if (home) lv.teamOff += 0.8; else lv.oppOff += 0.8;
+        games.push({ kind: 'reg', label: `${i + 1}차전`, opp, L, lv, ser: { i: h, when: SER[h], opp: opp.name, home } });
+      }
+    });
     W.games = games;
     if (top && S.injury === 0 && c.keys.includes(S.week)) {
       const isOpen = S.week === c.reg[0];
@@ -670,6 +768,7 @@ const Game = (() => {
 
   // 일반 경기 시뮬
   function simGame(g, forcePitch) {
+    if (S.wk && S.wk.games) S.wk.gi = S.wk.games.indexOf(g);
     const lv = g.lv;
     const res = { bat: blankStats(), pit: null, ours: 0, theirs: 0 };
     let ours = 0;
@@ -680,10 +779,10 @@ const Game = (() => {
     let start = false, relief = false;
     if (pr) {
       S.rot = (S.rot || 0) + 1;
-      if (pr === 'SP') start = forcePitch || S.rot % (S.phase === 'HS' ? 2 : S.pos === 'TW' ? 6 : 5) === 0;
+      if (pr === 'SP') start = forcePitch || S.rot % (amateur() ? 2 : S.pos === 'TW' ? 6 : 5) === 0;
       else relief = forcePitch || chance(pr === 'CL' ? 0.42 : 0.45);
     }
-    let bats = br && !(S.pos === 'TW' && S.phase !== 'HS' && S.rot % 6 === 1);
+    let bats = br && !(S.pos === 'TW' && !amateur() && S.rot % 6 === 1);
     if (br === 'bench') bats = chance(0.45);
     if (bats) {
       const n = br === 'starter' ? (chance(0.25) ? 5 : chance(0.75) ? 4 : 3) : 1;
@@ -707,7 +806,7 @@ const Game = (() => {
     }
     let theirs = 0;
     if (start) {
-      const limit = S.phase === 'HS' ? 100 : 72 + S.pit.sta * 0.45;
+      const limit = amateur() ? 100 : 72 + S.pit.sta * 0.45;
       const ot = simOuting(effPit(), g.L, limit);
       res.pit = Object.assign(blankStats(), { PG: 1, GS: 1, OUTS: ot.outs, PH: ot.H, ER: ot.ER, PBB: ot.BB, PSO: ot.SO, PHR: ot.HR });
       theirs = ot.ER;
@@ -878,14 +977,14 @@ const Game = (() => {
   // ---------- 주간 마무리 ----------
   function finishWeek() {
     const W = S.wk;
-    const rep = { title: dateStr(), lines: [], gains: W.gains || [], games: [], dateLine: W.dateLine, dateHid: W.dateHid, events: [] };
+    const rep = { title: dateStr(), anim: W.anim, dateNarr: W.dateNarr, lines: [], gains: W.gains || [], games: [], dateLine: W.dateLine, dateHid: W.dateHid, events: [] };
     const weekStats = blankStats();
     // 경기 처리
     if (W.games && W.games.length) {
       if (W.postMode) processPost(W, rep, weekStats);
       else {
         W.games.forEach((g, i) => {
-          if (S.phase === 'HS' && g.kind === 'tourn' && !S.hs.tourn.alive) return;
+          if (amateur() && g.kind === 'tourn' && !S.hs.tourn.alive) return;
           let r;
           if (g.key && W.keyRes) r = W.keyRes;
           else if (g.pre) r = g.pre;
@@ -893,25 +992,28 @@ const Game = (() => {
           else r = simGame(g);
           addStats(weekStats, r.bat); addStats(weekStats, r.pit);
           g.res = r;
-          rep.games.push({ label: g.label, win: r.win, ours: r.ours, theirs: r.theirs, key: !!g.key, title: g.key ? g.title : null });
-          if (S.phase === 'HS') afterHSGame(g, r, rep);
+          rep.games.push({ label: g.ser ? `${g.label}` : g.label, win: r.win, ours: r.ours, theirs: r.theirs, key: !!g.key, title: g.key ? g.title : null, ser: g.ser || null, gi: i, me: gameLine(r) });
+          if (amateur()) afterHSGame(g, r, rep);
           else {
             if (r.win) S.teamRec.w++; else S.teamRec.l++;
-            if (S.phase === 'KBO') { const tr = S.teams[S.team]; if (S.level === 'KBO1') { if (r.win) tr.w++; else tr.l++; } }
+            if (S.phase === 'KBO') { const tr = S.teams[S.team]; if (S.level === 'KBO1') { const ot = g.opp && S.teams[g.opp.id]; if (r.win) { tr.w++; if (ot) ot.l++; } else { tr.l++; if (ot) ot.w++; } } }
           }
         });
         if (S.phase === 'KBO') simLeagueWeek(W);
+        rep.series = seriesSummary(rep.games);
+        rep.series.forEach((x) => { if (x.tag === '스윕') { S.mental = clamp(S.mental + 3, 0, 100); } else if (x.tag === '스윕패') S.mental = clamp(S.mental - 3, 0, 100); });
       }
       if (!W.postMode) addStats(S.st, weekStats);
       const pg = weekStats.G || weekStats.PG;
-      if (S.phase !== 'HS') { S.levelWeeks++; if (S.level === 'KBO1' || S.level === 'MLB') S.topWeeks++; }
+      if (!amateur()) { S.levelWeeks++; if (S.level === 'KBO1' || S.level === 'MLB') S.topWeeks++; }
       // 피로 & 인기
       const games = W.games.length;
       S.fat = clamp(S.fat + (isBatter() ? games * (S.fpos === 'C' ? 1.5 : 1.1) : 0) + (weekStats.GS ? 6 : 0) + weekStats.PG * 1.5, 0, 100);
-      const top = S.level === 'KBO1' ? 0.25 : S.level === 'MLB' ? 0.45 : S.phase === 'HS' ? 0.1 : 0.05;
+      const top = S.level === 'KBO1' ? 0.25 : S.level === 'MLB' ? 0.45 : amateur() ? 0.1 : 0.05;
       S.fame = clamp(S.fame + top + weekStats.HR * 0.25 + weekStats.W * 0.4 + weekStats.SV * 0.15, 0, 100);
       rep.week = weekStats; rep.played = pg;
       S.recent.push(perfScore(weekStats)); if (S.recent.length > 6) S.recent.shift();
+      if (!amateur() && pg) S.trust = clamp(S.trust + clamp(perfScore(weekStats) * 0.8, -2, 3), 0, 100);
       // 경기 중 성장 (실전 경험)
       if (pg) {
         if (isBatter() && weekStats.PA) { growAttr(pick(['con', 'eye', 'pow']), 0.12 * ageMult()); }
@@ -920,6 +1022,7 @@ const Game = (() => {
       if (S.fat > 82 && chance(0.06)) rep.events.push(injure(ri(1, 4)));
     }
     // 자연 회복
+    S.trust = clamp(S.trust + (50 - S.trust) * 0.02, 0, 100);
     const h = HOUSES.find((x) => x.id === S.house);
     S.fat = clamp(S.fat - 7 - h.cond * 0.5, 0, 100);
     S.mental = clamp(S.mental + (S.spouse ? 1 : 0) + h.mental * 0.2 + (S.mental < 50 ? 0.6 : -0.3), 0, 100);
@@ -931,11 +1034,29 @@ const Game = (() => {
     S.stats.weeks++;
     advanceWeek(rep);
     if (chance(0.2)) randomEvent();
+    else maybeChoice({ perf: rep.week ? perfScore(rep.week) : 0, tourn: W.games && W.games.some((g) => g.kind === 'tourn') });
     S.wk = null;
     save();
     return rep;
   }
 
+  function gameLine(r) {
+    const p = [];
+    const b = r.bat, q = r.pit;
+    if (b && b.PA) p.push(`${b.AB}타수 ${b.H}안타${b.HR ? ` ${b.HR}홈런` : ''}${b.RBI ? ` ${b.RBI}타점` : ''}`);
+    if (q && q.PG) p.push(`${fmtIp(q.OUTS)}이닝 ${q.ER}실점 ${q.PSO}K${q.W ? ' 승' : q.L ? ' 패' : q.SV ? ' 세이브' : ''}`);
+    return p.join(' · ') || (r.bat || r.pit ? '결장' : '');
+  }
+  function seriesSummary(games) {
+    const out = [];
+    games.forEach((g) => {
+      if (!g.ser) return;
+      let s2 = out[g.ser.i];
+      if (!s2) s2 = out[g.ser.i] = { when: g.ser.when, opp: g.ser.opp, home: g.ser.home, w: 0, l: 0 };
+      if (g.win) s2.w++; else s2.l++;
+    });
+    return out.filter(Boolean).map((x) => Object.assign(x, { tag: x.w === 3 ? '스윕' : x.l === 3 ? '스윕패' : x.w === 2 ? '위닝시리즈' : '루징시리즈' }));
+  }
   function perfScore(t) {
     let s = 0;
     if (t.PA) s += ((t.H + t.BB) / t.PA - 0.33) * 6 + (t.HR * 1.2) + ((t.H + t.D + t.T * 2 + t.HR * 3) / Math.max(1, t.AB) - 0.4) * 3;
@@ -958,7 +1079,7 @@ const Game = (() => {
           S.trophies.push(t);
           S.fame = clamp(S.fame + 6, 0, 100); S.hs.scoutK += 8; S.hs.scoutM += 5;
           addLog(`${T.name} 우승!!`);
-          S.pending.push({ type: 'msg', data: { title: `${T.name} 우승!`, icon: 'trophy', text: `${SCHOOLS[S.school].name}이(가) ${T.name} 정상에 올랐다!\n전국의 스카우트들이 ${S.name}의 이름을 수첩에 적었다.` } });
+          S.pending.push({ type: 'msg', data: { title: `${T.name} 우승!`, icon: 'trophy', text: `${amSchool().name}이(가) ${T.name} 정상에 올랐다!\n전국의 스카우트들이 ${S.name}의 이름을 수첩에 적었다.` } });
         }
       } else {
         T.alive = false;
@@ -968,22 +1089,17 @@ const Game = (() => {
   }
 
   // KBO 리그 순위 (다른 팀 경기는 확률로)
-  function simLeagueWeek() {
-    const ids = KBO_TEAMS.map((t) => t.id).filter((id) => id !== S.team);
-    const playedMine = S.level === 'KBO1';
-    for (let d = 0; d < 6; d++) {
-      let pool = shuffle(ids);
-      if (!playedMine) pool = shuffle(KBO_TEAMS.map((t) => t.id));
-      else pool = pool.slice(0, pool.length - 1);
-      for (let i = 0; i + 1 < pool.length; i += 2) {
-        const a = S.teams[pool[i]], b = S.teams[pool[i + 1]];
-        const p = 1 / (1 + Math.exp(-(a.str - b.str) / 8));
-        if (chance(p)) { a.w++; b.l++; } else { a.l++; b.w++; }
+  function simLeagueWeek(W) {
+    if (!W || !W.leaguePairs) return;
+    const mine = S.level === 'KBO1';
+    W.leaguePairs.forEach((pairs) => pairs.forEach(([h, a]) => {
+      if (mine && (h === S.team || a === S.team)) return;
+      const A = S.teams[h], B = S.teams[a];
+      for (let g = 0; g < 3; g++) {
+        const p = 1 / (1 + Math.exp(-(A.str - B.str + 1.5) / 8));
+        if (chance(p)) { A.w++; B.l++; } else { A.l++; B.w++; }
       }
-    }
-    if (!playedMine) {
-      // 2군에 있을 땐 팀 경기 결과를 확률로 처리
-    }
+    }));
   }
   function standings() {
     ensureTeams();
@@ -993,13 +1109,14 @@ const Game = (() => {
   }
 
   function payroll(rep) {
-    if (S.phase === 'HS' || S.phase === 'RETIRED') return;
+    if (amateur() || S.phase === 'RETIRED' || S.phase === 'INDY') return;
     let pay = 0;
     const c = S.contract;
     if (c) {
       if (c.kind === 'milb' && !c.arb) pay = (S.level === 'MLB' ? 780000 : (S.level === 'AAA' ? 45000 : 35000)) * USD / 48;
       else pay = c.salary / 48;
     }
+    if (S.flags.agent) pay *= 0.97;
     S.money += pay;
     if (S.week % 4 === 3) {
       const h = HOUSES.find((x) => x.id === S.house);
@@ -1114,12 +1231,7 @@ const Game = (() => {
   }
   function newYear() {
     S.year++; S.age++;
-    if (S.phase === 'HS') {
-      if (S.grade < 3) {
-        S.grade++;
-        addLog(`${S.grade}학년 진급!`);
-      } else graduate();
-    }
+    if (amateur()) amateurNewYear();
     // 노화
     if (S.age >= 31) {
       const d = (S.age - 30) * 0.45;
@@ -1129,7 +1241,57 @@ const Game = (() => {
     }
     S.contactWeek = {};
   }
+  function amateurNewYear() {
+    const h = S.hs;
+    if (h.path === 'MLB') return graduate();
+    if (h.drafted) return graduate();
+    if (S.phase === 'HS') {
+      if (S.grade < 3) { S.grade++; addLog(`${S.grade}학년 진급!`); return; }
+      if (h.path === 'UNI') return startUni(h.uniPick);
+      return startIndy(h.indyPick);
+    }
+    if (S.grade < 4) {
+      S.grade++; h.path = null; h.draftDone = false; h.tourn = null;
+      addLog(`대학 ${S.grade}학년 진급!`);
+      return;
+    }
+    return startIndy(h.indyPick);
+  }
+  function freshAmateur(keep) {
+    const h = S.hs || {};
+    S.hs = { tourn: null, scoutK: (h.scoutK || 5) * keep, scoutM: (h.scoutM || 0) * keep, draftDone: false, path: null, drafted: false };
+  }
+  function startUni(idx) {
+    newChart();
+    S.phase = 'UNI'; S.uni = idx == null ? ri(4, UNIVS.length - 1) : idx; S.grade = 1;
+    freshAmateur(0.6);
+    S.team = null; S.contract = null; S.level = null;
+    S.st = blankStats(); newChart();
+    addLog(`${UNIVS[S.uni].name} 야구부 입학!`);
+    S.pending.push({ type: 'msg', data: { title: '대학 입학', icon: 'star', text: `${UNIVS[S.uni].name} 야구부에 입학했다.\n2학년(얼리 드래프트)과 4학년 때 KBO 신인 드래프트에 다시 도전할 수 있다.` } });
+  }
+  function startIndy(id) {
+    newChart();
+    S.phase = 'INDY'; S.team = id || pick(INDY_TEAMS).id; S.level = 'INDY'; S.contract = null;
+    freshAmateur(0);
+    S.st = blankStats(); newChart(); S.teamRec = { w: 0, l: 0 }; S.recent = [];
+    S.flags.indyYear = S.year;
+    addLog(`${teamInfo(S.team).name} 입단 (독립리그)`);
+    S.pending.push({ type: 'msg', data: { title: '독립리그 입단', icon: 'star', text: `${teamInfo(S.team).name}에서 다시 시작한다.\n연봉은 없지만, 성적을 내면 KBO 구단이 신고선수(육성선수)로 데려갈 수 있다.` } });
+  }
+  function signShingo(teamId) {
+    if (S.st.G || S.st.PG) S.career.push({ year: S.year, team: teamInfo(S.team).name, level: '독립리그', st: Object.assign({}, S.st) });
+    newChart();
+    S.phase = 'KBO'; S.team = teamId; S.level = 'KBO2'; S.trust = 45;
+    S.contract = { kind: 'annual', lg: 'KBO', salary: 30000000 };
+    S.teams = {}; ensureTeams();
+    S.st = blankStats(); newChart(); S.teamRec = { w: 0, l: 0 }; S.recent = [];
+    S.flags.proYear = S.week >= 36 ? S.year + 1 : S.year; S.flags.shingo = true; S.lvlSince = S.stats.weeks;
+    S.fame = clamp(S.fame + 4, 0, 100); S.mental = clamp(S.mental + 15, 0, 100);
+    addLog(`${teamInfo(teamId).name} 신고선수로 입단!`);
+  }
   function graduate() {
+    newChart();
     if (S.hs.path === 'MLB') {
       S.phase = 'MLB'; S.level = 'RK'; S.teamStr = rnd(62, 70);
       addLog(`${teamInfo(S.team).name} 마이너리그 생활 시작!`);
@@ -1141,13 +1303,14 @@ const Game = (() => {
       S.pending.push({ type: 'msg', data: { title: '프로 입단', icon: 'star', text: `${teamInfo(S.team).name}의 신인 ${S.name}.\n2월 스프링캠프에서 실력을 보여주면 개막 엔트리에 들 수 있다!\n\n이제 성인이 되어 연애와 자산 메뉴가 열렸습니다.` } });
     }
     S.st = blankStats(); newChart(); S.teamRec = { w: 0, l: 0 };
-    S.flags.proYear = S.year;
+    S.flags.proYear = S.year; S.lvlSince = S.stats.weeks;
   }
 
   function weeklyChecks(rep) {
     const w = S.week;
-    if (S.phase === 'HS') return hsChecks(w);
+    if (amateur()) return hsChecks(w);
     if (S.phase === 'RETIRED') return;
+    if (S.phase === 'INDY') indyChecks(w);
     const c = seasonCfg();
     // 시즌 시작
     if (w === c.reg[0]) startSeason();
@@ -1176,11 +1339,26 @@ const Game = (() => {
       S.pending.push({ type: 'breakup', data: { hid: S.partner } });
     }
   }
+  function indyChecks(w) {
+    const c = SEASON.INDY;
+    const o = ovr(), p = perfAvg();
+    const inSeason = w > c.reg[0] && w <= c.reg[1];
+    const recentTry = S.stats.weeks - (S.flags.tryWk || -99) < 8;
+    if (!recentTry && ((inSeason && w % 2 === 0 && S.recent.length >= 3 && ((o >= 52 && p > 1.2) || o >= 56) && chance(0.45)) || (w === 40 && o >= 52))) {
+      S.flags.tryWk = S.stats.weeks;
+      S.pending.push({ type: 'tryout', data: { team: pick(KBO_TEAMS).id } });
+    }
+    if (w === c.retire) {
+      if (S.age >= 31) S.pending.push({ type: 'indyEnd', data: {} });
+      else if (S.age >= 27) S.pending.push({ type: 'indyAsk', data: {} });
+    }
+  }
   function perfAvg() { return S.recent.length ? S.recent.reduce((a, b) => a + b, 0) / S.recent.length : 0; }
 
   function hsChecks(w) {
-    if (w === 8 && S.grade > 1) { S.st = blankStats(); newChart(); }
-    if (S.grade === 3 && w === 32 && !S.hs.path) {
+    if (w === 8 && (S.grade > 1 || S.phase === 'UNI')) { S.st = blankStats(); newChart(); }
+    if (S.phase === 'UNI' && S.grade === 2 && w === 32 && !S.hs.path) { S.pending.push({ type: 'unidraft', data: {} }); return heroineChecks(); }
+    if (draftYear() && w === 32 && !S.hs.path) {
       // 진로 결정
       const offers = [];
       if (ovr() >= 52 && (S.pot >= 72 || S.hs.scoutM >= 35)) {
@@ -1190,12 +1368,12 @@ const Game = (() => {
           offers.push({ team: t.id, bonus: Math.round(b / 1e4) * 1e4 });
         });
       }
-      S.pending.push({ type: 'path', data: { offers } });
+      S.pending.push({ type: 'path', data: { offers, uni: S.phase === 'HS' ? uniOffer() : null } });
     }
-    if (S.grade === 3 && w === 34 && S.hs.path === 'KBO' && !S.hs.draftDone) S.pending.push({ type: 'draft', data: draftPick() });
-    if (w === 44) hsAwards();
+    if (draftYear() && w === 34 && S.hs.path === 'KBO' && !S.hs.draftDone) S.pending.push({ type: 'draft', data: draftPick() });
+    if (w === 44 && S.phase === 'HS') hsAwards();
     if (w === 40) {
-      S.career.push({ year: S.year, team: SCHOOLS[S.school].name, level: `고교 ${S.grade}학년`, st: Object.assign({}, S.st) });
+      S.career.push({ year: S.year, team: amSchool().name, level: `${S.phase === 'UNI' ? '대학' : '고교'} ${S.grade}학년`, st: Object.assign({}, S.st) });
     }
     heroineChecks();
   }
@@ -1213,10 +1391,15 @@ const Game = (() => {
     }
   }
 
+  function uniOffer() {
+    const order = UNIVS.map((u, i) => i).sort((a, b) => UNIVS[b].str - UNIVS[a].str);
+    const k = clamp(Math.round((60 - ovr()) / 2.2) + ri(0, 2), 0, order.length - 1);
+    return order[k];
+  }
   function draftPick() {
-    const score = ovr() + S.hs.scoutK * 0.08 + rnd(-2.5, 2.5);
+    const score = ovr() + S.hs.scoutK * 0.05 + (S.phase === 'UNI' ? -1.5 : 0) + rnd(-2.5, 2.5);
     let better = 0;
-    for (let i = 0; i < 110; i++) { const s = 71 - i * 0.2 + rnd(-2, 2); if (s > score) better++; }
+    for (let i = 0; i < 110; i++) { const s = 74 - i * 0.17 + rnd(-2, 2); if (s > score) better++; }
     const pick_ = better + 1;
     let order = KBO_TEAMS.map((t) => t.id);
     order = shuffle(order);
@@ -1230,12 +1413,16 @@ const Game = (() => {
 
   function startSeason() {
     S.st = blankStats(); newChart(); S.teamRec = { w: 0, l: 0 }; S.levelWeeks = 0; S.topWeeks = 0; S.post = null; S.rot = 0; S.recent = [];
+    if (S.phase === 'INDY') {
+      S.pending.push({ type: 'msg', data: { title: `${S.year} 독립리그 개막`, icon: 'ball', text: `${teamInfo(S.team).name}에서 새 시즌을 시작한다.\n좋은 성적을 내면 KBO 구단 스카우트가 찾아온다.` } });
+      return;
+    }
     if (S.phase === 'KBO') {
       ensureTeams();
       KBO_TEAMS.forEach((t) => { const x = S.teams[t.id]; x.w = 0; x.l = 0; x.str = clamp(x.str + rnd(-4, 4), 50, 70); });
       const o = ovr();
       const was = S.level;
-      S.level = o >= 55 ? 'KBO1' : 'KBO2';
+      S.level = o >= (isRookie() ? 61 : 55) ? 'KBO1' : 'KBO2';
       const msg = S.level === 'KBO1' ? `개막 엔트리 합류! ${roleLabel()}로 시즌을 시작한다.` : '퓨처스리그(2군)에서 시즌을 시작한다. 실력을 키워 1군에 올라가자!';
       addLog(msg);
       if (was !== S.level || S.year === S.flags.proYear) S.pending.push({ type: 'msg', data: { title: `${S.year} 시즌 개막`, icon: 'ball', text: msg } });
@@ -1276,10 +1463,12 @@ const Game = (() => {
     S.recent = [];
   }
   function levelMoves() {
-    const o = ovr(), p = perfAvg();
+    if (S.phase === 'INDY') return;
+    const o = ovr() + trustAdj() * 0.8, p = perfAvg();
     if (S.injury > 0) return;
     if (S.phase === 'KBO') {
-      if (S.level === 'KBO2' && (o >= 57 || (o >= 52 && p > 1.2 && S.recent.length >= 3))) promote('KBO1', '퓨처스에서의 활약으로 1군 콜업!');
+      const rk = isRookie();
+      if (S.level === 'KBO2' && !(rk && S.stats.weeks - (S.lvlSince || 0) < 8) && (o >= (rk ? 60 : 57) || (o >= (rk ? 56 : 52) && p > (rk ? 1.5 : 1.2) && S.recent.length >= 3))) promote('KBO1', '퓨처스에서의 활약으로 1군 콜업!');
       else if (S.level === 'KBO1' && o < 53 && p < -1 && S.recent.length >= 3) demote('KBO2', '부진으로 1군 엔트리에서 말소됐다.');
     } else {
       const i = MILB_LADDER.indexOf(S.level);
@@ -1314,6 +1503,7 @@ const Game = (() => {
     if (S.phase === 'KBO' && S.topWeeks >= 14) { S.service++; addLog(`KBO 1군 등록 ${S.service}시즌 채움`); }
     if (S.phase === 'MLB' && S.topWeeks >= 15) { S.mlbService++; addLog(`메이저리그 서비스 타임 ${S.mlbService}년`); }
     if (S.contract && S.contract.years) S.contract.years--;
+    if (S.phase === 'INDY') S.career[S.career.length - 1].lg = null;
   }
 
   function awards() {
@@ -1392,9 +1582,11 @@ const Game = (() => {
         out.push({ lg: 'MLB', team: t.id, years, aav: Math.round(aav / 1e5) * 1e5 });
       });
     }
+    if (S.flags.agent) out.forEach((x) => { if (x.total) { x.total = Math.round(x.total * 1.08 / 1e7) * 1e7; x.bonus = Math.round(x.bonus * 1.08 / 1e7) * 1e7; } if (x.aav) x.aav = Math.round(x.aav * 1.08 / 1e5) * 1e5; });
     return out;
   }
   function signFA(off) {
+    S.trust = 50;
     if (off.lg === 'KBO') {
       const salary = (off.total - off.bonus) / off.years;
       S.money += off.bonus;
@@ -1418,7 +1610,8 @@ const Game = (() => {
     const target = 30000000 + Math.max(0, w) * 40000000 * (1 + S.service * 0.4);
     let offer = Math.max(prev * 0.75, prev + (target - prev) * 0.7, 30000000);
     offer = Math.round(offer / 1e6) * 1e6;
-    S.pending.push({ type: 'nego', data: { prev, offer, war: w } });
+    if (S.flags.agent) offer = Math.round(offer * 1.06 / 1e6) * 1e6;
+    S.pending.push({ type: 'nego', data: { prev, offer, war: w, agent: !!S.flags.agent } });
   }
   function mlbSalary() {
     S.flags['nego' + S.year] = true;
@@ -1457,12 +1650,22 @@ const Game = (() => {
   function contact(id) {
     const h = HEROINES.find((x) => x.id === id);
     S.contactWeek[id] = S.year * 100 + S.week;
-    const g = ri(1, 3) + (S.partner === id ? 1 : 0);
-    S.rel[id].aff = clamp(S.rel[id].aff + g, 0, 100);
     S.lastDate[id] = S.stats.weeks;
-    S.mental = clamp(S.mental + 1, 0, 100);
     save();
-    return { line: heroLine(h), gain: g };
+    return { line: heroLine(h) };
+  }
+  function reply(id, tone) {
+    const like = HERO_TONE[id] === tone;
+    const g = (like ? ri(3, 5) : ri(0, 2)) + (S.partner === id ? 1 : 0);
+    S.rel[id].aff = clamp(S.rel[id].aff + g, 0, 100);
+    S.mental = clamp(S.mental + (like ? 2 : 1), 0, 100);
+    save();
+    const R = {
+      warm: like ? ['그렇게 말해주니까 하루 피로가 다 풀리네.', '…고마워. 진짜로.'] : ['응, 고마워.', '갑자기 왜 이렇게 다정해?'],
+      fun: like ? ['아 진짜 웃겨 ㅋㅋㅋ 이래서 내가 연락한다니까.', '너랑 얘기하면 시간 가는 줄 몰라!'] : ['ㅋㅋ 뭐야 그게.', '장난은 그만~'],
+      base: like ? ['그 타석 분석 나도 똑같이 했어! 역시 통하네.', '그 얘기 더 해줘. 진짜 재밌다.'] : ['아… 야구 얘기구나.', '경기 얘기는 다음에 해도 돼.'],
+    }[tone];
+    return { text: pick(R), gain: g, like };
   }
   function dateBlocked(id) {
     if ((S.spouse && S.spouse !== id) || (S.partner && S.partner !== id)) return '연인이 있어요';
@@ -1477,6 +1680,11 @@ const Game = (() => {
     g = Math.round(g);
     S.rel[id].aff = clamp(S.rel[id].aff + g, 0, 100);
     S.lastDate[id] = S.stats.weeks;
+    if (pl.special) {
+      S.fat = clamp(S.fat + 35, 0, 100);
+      S.mental = clamp(S.mental + 25, 0, 100);
+      return { gains: [`${h.name} 호감도 +${g}`, '피로 +35', '멘탈 +25'], place: pl.name, line: pick(NIGHT_LINES), narr: true };
+    }
     S.fat = clamp(S.fat - pl.cond, 0, 100);
     S.mental = clamp(S.mental + 5, 0, 100);
     const gains = [`${h.name} 호감도 +${g}`, `피로 -${pl.cond}`, '멘탈 +5'];
@@ -1569,7 +1777,7 @@ const Game = (() => {
 
   // ---------- 랜덤 이벤트 ----------
   function randomEvent() {
-    const pro = S.phase !== 'HS';
+    const pro = S.phase === 'KBO' || S.phase === 'MLB';
     const pool = [
       () => { const k = isBatter() ? pick(['con', 'pow', 'eye']) : pick(['ctl', 'stf']); const g = growAttr(k, 0.8); S.pending.push({ type: 'msg', data: { title: '코치의 조언', icon: 'star', text: `코치님이 따로 불러 원포인트 레슨을 해주셨다.\n${ATTR_NAME[k]} +${g}` } }); },
       () => { S.mental = clamp(S.mental - 10, 0, 100); S.pending.push({ type: 'msg', data: { title: '슬럼프 기미', icon: 'rest', text: '요즘 뭘 해도 잘 안 풀린다...\n멘탈 -10' } }); },
@@ -1583,12 +1791,43 @@ const Game = (() => {
     pick(pool)();
   }
 
+  // ---------- 선택형 이벤트 ----------
+  function maybeChoice(c) {
+    if (S.phase === 'RETIRED') return;
+    const hs = amateur();
+    const pool = CHOICES.filter((x) => (hs ? x.hs : x.pro) && x.cond(S, c) && S.stats.weeks - (S.flags['ch_' + x.id] || -99) > 10);
+    const urgent = pool.filter((x) => x.id === 'hero_interview' || x.id === 'slump_q' || x.id === 'coach_rest');
+    let ev = null;
+    if (urgent.length && chance(0.45)) ev = pick(urgent);
+    else if (pool.length && chance(0.14)) ev = pick(pool);
+    if (!ev) return;
+    S.flags['ch_' + ev.id] = S.stats.weeks;
+    S.pending.push({ type: 'choice', data: { id: ev.id } });
+  }
+  function mainAttrs() { const a = []; if (isBatter()) a.push('con', 'pow', 'eye'); if (isPitcher()) a.push('ctl', 'stf'); return a; }
+  function applyFx(fx) {
+    const out = [];
+    if (fx.mental) { S.mental = clamp(S.mental + fx.mental, 0, 100); out.push(`멘탈 ${fx.mental > 0 ? '+' : ''}${fx.mental}`); }
+    if (fx.fame) { S.fame = clamp(S.fame + fx.fame, 0, 100); out.push(`인기 ${fx.fame > 0 ? '+' : ''}${fx.fame}`); }
+    if (fx.fat) { S.fat = clamp(S.fat + fx.fat, 0, 100); out.push(`피로 ${fx.fat > 0 ? '+' : ''}${fx.fat}`); }
+    if (fx.attr) { const k = pick(mainAttrs()); const g = growAttr(k, fx.attr * ageMult()); out.push(`${ATTR_NAME[k]} +${g}`); }
+    if (fx.money === 'yt') { const m = Math.round(S.fame * 600000 / 1e5) * 1e5; S.money += m; out.push(`출연료 +${won(m)}`); }
+    if (fx.aff && S.partner) { S.rel[S.partner].aff = clamp(S.rel[S.partner].aff + fx.aff, 0, 100); out.push(`호감 ${fx.aff > 0 ? '+' : ''}${fx.aff}`); }
+    if (fx.scout && amateur()) { S.hs.scoutK = clamp(S.hs.scoutK + fx.scout, 0, 100); out.push('스카우트 관심 ↑'); }
+    if (fx.injury) out.push(injure(fx.injury));
+    if (fx.trust) { S.trust = clamp(S.trust + fx.trust, 0, 100); out.push(`감독 신뢰 ${fx.trust > 0 ? '+' : ''}${fx.trust}`); }
+    if (fx.flag) S.flags[fx.flag] = true;
+    return out;
+  }
+  function choiceInfo(id) { return CHOICES.find((x) => x.id === id); }
+
   // ---------- 대기 이벤트 해결 ----------
   function resolve(ev, choice) {
     const d = ev.data;
     switch (ev.type) {
       case 'path':
         if (choice === 'KBO') { S.hs.path = 'KBO'; addLog('KBO 신인 드래프트 참가를 선택했다.'); }
+        else if (choice === 'UNI') { S.hs.path = 'UNI'; S.hs.uniPick = d.uni; addLog(`${UNIVS[d.uni].name} 진학을 결정했다.`); return { title: '대학 진학', text: `졸업 후 ${UNIVS[d.uni].name} 야구부에 입학한다.` }; }
         else {
           const off = d.offers[choice];
           S.hs.path = 'MLB'; S.team = off.team; S.money += off.bonus * USD;
@@ -1602,19 +1841,38 @@ const Game = (() => {
       case 'draft':
         S.hs.draftDone = true;
         if (d.undrafted) {
-          S.team = d.team; S.contract = { kind: 'annual', lg: 'KBO', salary: 30000000 };
-          S.mental = clamp(S.mental - 15, 0, 100);
-          addLog(`드래프트 미지명... ${teamInfo(d.team).name} 육성선수로 입단.`);
+          S.mental = clamp(S.mental - 12, 0, 100);
+          addLog('드래프트에서 이름이 불리지 않았다...');
+          const stage = S.phase === 'HS' ? 'HS' : S.grade === 2 ? 'UNI2' : 'UNI4';
+          S.pending.unshift({ type: 'undrafted', data: { stage, uni: stage === 'HS' ? uniOffer() : null, indy: pick(INDY_TEAMS).id } });
         } else {
+          S.hs.drafted = true;
           S.team = d.team; S.money += d.bonus; S.contract = { kind: 'annual', lg: 'KBO', salary: 30000000 };
           S.fame = clamp(S.fame + (d.round === 1 ? 10 : 4), 0, 100);
           addLog(`${teamInfo(d.team).name} ${d.round}라운드 ${d.inRound}순위 지명! 계약금 ${won(d.bonus)}`);
         }
         return null;
+      case 'unidraft':
+        if (choice === 'apply') { S.hs.path = 'KBO'; addLog('얼리 드래프트 참가를 신청했다.'); }
+        else { S.hs.path = 'STAY'; addLog('4학년까지 다니기로 했다.'); }
+        return null;
+      case 'undrafted':
+        if (choice === 'UNI') { S.hs.path = 'UNI'; S.hs.uniPick = d.uni; addLog(`${UNIVS[d.uni].name} 진학을 결정했다.`); return { title: '대학 진학', text: `졸업 후 ${UNIVS[d.uni].name} 야구부에 입학한다. 4년 뒤를 노리자.` }; }
+        if (choice === 'INDY') { S.hs.path = 'INDY'; S.hs.indyPick = d.indy; addLog(`${teamInfo(d.indy).name} 입단을 결정했다.`); return { title: '독립리그 행', text: `${S.phase === 'HS' ? '졸업' : '졸업'} 후 ${teamInfo(d.indy).name}에서 뛴다. 성적을 내서 프로의 문을 다시 두드리자.` }; }
+        S.hs.path = 'STAY';
+        return { title: '다시 도전', text: '아직 2학년이다. 4학년 드래프트에서 다시 도전하자.' };
+      case 'tryout':
+        if (choice === 'yes') { signShingo(d.team); return { title: '신고선수 계약!', text: `${teamInfo(d.team).name}와 신고선수(육성선수) 계약을 맺었다.\n퓨처스리그(2군)부터 시작한다. 드디어 프로다!` }; }
+        S.mental = clamp(S.mental - 3, 0, 100);
+        return null;
+      case 'indyAsk':
+        if (choice === 'retire') { retire(); return null; }
+        return null;
+      case 'indyEnd': retire(); return null;
       case 'nego': {
         let sal = d.offer, msg;
         if (choice === 'ask') {
-          const p = clamp(0.45 + d.war * 0.06, 0.2, 0.85);
+          const p = clamp(0.45 + d.war * 0.06 + (S.flags.agent ? 0.2 : 0), 0.2, 0.92);
           if (chance(p)) { sal = Math.round(d.offer * 1.15 / 1e6) * 1e6; msg = `구단이 요구를 받아들였다! 연봉 ${won(sal)}`; }
           else { S.mental = clamp(S.mental - 5, 0, 100); msg = `협상 결렬... 구단 제시액 ${won(sal)}에 도장을 찍었다.`; }
         } else msg = `${won(sal)}에 계약했다.`;
@@ -1653,6 +1911,13 @@ const Game = (() => {
         addLog(`${h.name}와 헤어졌다...`);
         return null;
       }
+      case 'choice': {
+        const ev2 = choiceInfo(d.id);
+        const o = ev2.opts[choice] || ev2.opts[0];
+        let msg = o.msg, eff = applyFx(o.fx);
+        if (o.risk && chance(o.risk.p)) { msg += '\n\n' + o.risk.msg; eff = eff.concat(applyFx(o.risk.fx)); }
+        return { title: ev2.title, text: msg + (eff.length ? '\n\n' + eff.join(' · ') : '') };
+      }
       case 'allstar':
         S.fame = clamp(S.fame + 4, 0, 100);
         S.awards.push(`${S.year} ${league()} 올스타`);
@@ -1667,7 +1932,7 @@ const Game = (() => {
     S.hof = (tot.war >= 55) || S.awards.filter((a) => /MVP|사이영/.test(a)).length >= 2;
   }
   function careerTotals() {
-    const pro = S.career.filter((c) => c.lg);
+    const pro = S.career.filter((c) => c.lg === 'KBO' || c.lg === 'MLB');
     const t = blankStats(); let w = 0;
     pro.forEach((c) => { addStats(t, c.st); w += c.war || 0; });
     t.war = +w.toFixed(1);
@@ -1689,10 +1954,10 @@ const Game = (() => {
     won, usd, grade, dateStr, ovr, batOVR, pitOVR, velScore, repScore, affiliation, myColors, teamInfo, roleLabel, batRole, pitRole,
     actions, trainingList, planWeek, finishWeek, keyPlayOptions, applyKeyResult, preSimFinal, playerForPlay, makeOppPitcher, makeOppBatter,
     resolve, standings, inRegular, isOffseason, league, seasonCfg, fmtAvg, fmtOps, fmtEra, fmtIp, war, seasonSummary, careerTotals,
-    contact, canContact, doDate, gift, confess, proposeCheck, propose, dateBlocked, relStage, STAGE_NAME, heroLine,
+    contact, reply, choiceInfo, canContact, doDate, gift, confess, proposeCheck, propose, dateBlocked, relStage, STAGE_NAME, heroLine,
     FPOS, fpos, setFpos(k) { if (FPOS[k]) { S.fpos = k; addLog(`포지션을 ${FPOS[k].name}로 바꿨다.`); save(); } },
     buyHouse, sellHouse, buyCar, sellCar, lessonCost, derbyResult, simDerby, addLog, advance, PKEYS, fenceDist,
-    LEVEL_LABEL, POS_LABEL, ATTR_NAME, PITCH_ORDER, HS_CAL, ROUNDS, isBatter, isPitcher, clamp, rnd, ri, pick, chance,
+    weekSeries, amateur, amCal, chartLabel, LEVEL_LABEL, POS_LABEL, ATTR_NAME, PITCH_ORDER, HS_CAL, ROUNDS, isBatter, isPitcher, clamp, rnd, ri, pick, chance,
     // 테스트용
     _sim: { batPA, pitPA, simHalf, simOuting, simGame, blankStats },
   };
