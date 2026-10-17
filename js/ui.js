@@ -146,7 +146,7 @@ const UI = (() => {
     const d = o - S.ovrMark;
     const roleTxt = Game.amateur() ? (S.pos === 'P' ? '투수' : S.pos === 'TW' ? `${Game.fpos().name} / 투수` : Game.fpos().name) : Game.roleLabel();
     const acts = Game.actions();
-    if (S.phase !== 'HS') acts.push({ id: 'date', name: '데이트', icon: 'love', sub: S.partner ? '연인과 시간 보내기' : '호감도 올리기' });
+    if (S.phase !== 'HS' && !Game.campActive() && !Game.campNeedsPlan()) acts.push({ id: 'date', name: '데이트', icon: 'love', sub: S.partner ? '연인과 시간 보내기' : '호감도 올리기' });
     const iconOf = { train: 'train', rest: 'rest', star: 'star', coin: 'coin', heart: 'fan', chart: 'video', cal: 'book' };
     return `${header('야구 인생')}
       ${periodCard()}
@@ -479,9 +479,48 @@ const UI = (() => {
     if (busy) return;
     if (off) { toast(Game.actions().find((a) => a.id === id).disabled); return; }
     if (id === 'train' || id === 'lesson') return trainPicker(id);
+    if (id === 'campPlan') return campPlanSheet();
+    if (id === 'campAll') return startAuto(Game.campInfo().weeks);
     if (id === 'date') { view.tab = 'life'; view.life = 'love'; render(); toast('데이트할 사람을 골라주세요'); return; }
     runWeek(id);
   }
+  // ---------- 캠프 계획 ----------
+  function campPlanSheet(then) {
+    const S = G();
+    const info = Game.campInfo();
+    const cur = (x) => {
+      if (x.attr === 'vel') return `${S.pit.vel.toFixed(1)}km`;
+      if (x.attr === 'pitch') return `${Object.keys(S.pit.pitches).length}구종`;
+      return Math.round((['ctl', 'stf', 'sta'].includes(x.attr) ? S.pit : S.bat)[x.attr]);
+    };
+    const pickPack = (focus, pitch, label) => {
+      sheet({
+        title: '훈련 프로그램', body: `<p class="small muted">${info.name} ${info.weeks}주 동안 <b>${esc(label)}</b>에 집중해요. 비용은 한 번만 내요.</p>
+          <div class="list">${info.packs.map((p) => { const no = S.money < p.cost; return `<button class="li pack" data-pk="${p.id}" ${no ? 'disabled' : ''}><div class="tx"><b>${p.name}</b><small>${no ? '돈이 부족해요' : p.desc}</small><small class="pk-eff">훈련 효과 ${p.mult.toFixed(1)}배${p.sub ? ' · 약점 보완' : ''}${p.burst ? ' · 돌파 기회' : ''} · 주당 피로 +${p.fat}</small></div><span class="val">${p.cost ? Game.won(p.cost) : '무료'}</span></button>`; }).join('')}</div>
+          <p class="hint">보유 자산 ${Game.won(S.money)}</p>`,
+        buttons: [{ label: '뒤로', cls: 'sub', onClick: () => campPlanSheet(then) }],
+        onRender: (b, close) => { b.onclick = (e) => { const x = e.target.closest('[data-pk]'); if (!x || x.disabled) return; close(); const r = Game.setCamp(focus, pitch, x.dataset.pk); toast(r.ok ? `${label} 집중 캠프 시작!` : r.msg); render(); if (then) then(); }; },
+      });
+    };
+    sheet({
+      title: `${info.name} 집중 훈련`, body: `<p class="small muted">이 기간엔 매주 할 일을 고르는 대신, 한 가지 훈련에 집중해요. ${info.weeks}주 동안 이어져요.</p>
+        <div class="list">${info.focus.map((x) => `<button class="li" data-fc="${x.id}"><div class="tx"><b>${x.name}</b><small>${x.desc}</small></div><span class="val">${cur(x)}</span></button>`).join('')}</div>`,
+      buttons: [],
+      onRender: (b, close) => {
+        b.onclick = (e) => {
+          const x = e.target.closest('[data-fc]'); if (!x) return;
+          const t = info.focus.find((q) => q.id === x.dataset.fc);
+          close();
+          if (t.id !== 'pitch') return pickPack(t.id, null, t.name);
+          const all = ['FF', ...Game.PITCH_ORDER];
+          sheet({ title: '어떤 구종에 집중할까요?', body: `<div class="list">${all.map((k) => { const lv = S.pit.pitches[k]; return `<button class="li" data-k="${k}" ${lv >= 7 ? 'disabled' : ''}><div class="tx"><b><span class="tdot" style="background:${PCOL[k]}"></span>${PITCHES[k].full}</b><small>${lv ? '레벨 올리기' : '새 구종 도전'}</small></div><span class="val">${lv ? `Lv ${lv}` : '-'}</span></button>`; }).join('')}</div>`,
+            buttons: [{ label: '뒤로', cls: 'sub', onClick: () => campPlanSheet(then) }],
+            onRender: (b2, close2) => { b2.onclick = (e2) => { const y = e2.target.closest('[data-k]'); if (!y || y.disabled) return; close2(); pickPack('pitch', y.dataset.k, `${PITCHES[y.dataset.k].name} 연마`); }; } });
+        };
+      },
+    });
+  }
+
   function trainPicker(act) {
     const S = G();
     const list = Game.trainingList();
@@ -528,7 +567,7 @@ const UI = (() => {
     const showP = !auto && anim && anim.pitches.length > 0;
     const replay = (showS || showP) && rep.games.length;
     if (replay) parts.push(`<div class="replay"><div class="rp-cap" id="rp-cap">경기 시작</div><div class="rp-charts ${showS && showP ? 'two' : ''}">${showS ? miniField() : ''}${showP ? miniZone() : ''}</div><button class="mini sub" id="rp-skip">결과 바로 보기</button></div>`);
-    const gRow = (g) => `<div class="${g.win ? 'w' : 'l'} ${replay ? 'pend' : ''}" data-gi="${g.gi != null ? g.gi : ''}"><em>${g.win ? '승' : '패'}</em><span>${g.title ? `<b>${esc(g.title)}</b> ` : ''}${esc(g.label)}${g.sp ? ` <small class="sp">선발 ${esc(g.sp)}</small>` : ''}</span><b>${g.ours}:${g.theirs}</b></div>`;
+    const gRow = (g) => `<div class="${g.win ? 'w' : 'l'} ${replay ? 'pend' : ''}" data-gi="${g.gi != null ? g.gi : ''}"><em>${g.win ? '승' : '패'}</em><span>${g.title ? `<b>${esc(g.title)}</b> ` : ''}${esc(g.label)}${g.sp ? ` <small class="sp">선발 ${esc(g.sp)}</small>` : ''}${g.me && g.me.startsWith('휴식') ? ' <small class="rest-tag">휴식</small>' : g.pinch ? ' <small class="rest-tag">대타</small>' : ''}</span><b>${g.ours}:${g.theirs}</b></div>`;
     if (rep.series && rep.series.length) {
       rep.series.forEach((x, i) => {
         const tagCls = x.tag === '스윕' || x.tag === '위닝시리즈' ? 'good' : 'bad';
@@ -623,7 +662,8 @@ const UI = (() => {
         return;
       }
       let act = 'train', sub = null;
-      if (S.injury > 0 || S.fat > 62) act = 'rest';
+      if (Game.campActive()) act = S.fat > 60 ? 'campLight' : 'camp';
+      else if (S.injury > 0 || S.fat > 62) act = 'rest';
       else {
         const list = Game.trainingList();
         const gap = (x) => {
@@ -701,6 +741,10 @@ const UI = (() => {
         sheet({ title: '선을 넘었다', body: heroBlock(h, ['[경기장 선수 출입구]', '왜 나 피해? 나 여기서 세 시간 기다렸어.', '오늘 나랑 같이 안 가면 나 진짜 무슨 짓 할지 몰라.']) + '<p class="hint">기자들이 이 장면을 찍었어요. 인기와 감독 신뢰가 떨어져요.</p>', row: true, buttons: [{ label: '끝내자고 한다', cls: 'danger', onClick: () => done('end') }, { label: '한 번 더 믿어본다', cls: 'sub', onClick: () => done('stay') }] });
         break;
       }
+      case 'campPlan':
+        if (!Game.campNeedsPlan()) { done(); break; }
+        campPlanSheet(() => done());
+        break;
       case 'meet': { const h = HEROINES.find((x) => x.id === d.hid); sheet({ title: '새로운 만남', body: `<p class="muted">${h.meet}에서</p>` + heroBlock(h, h.intro), buttons: [{ label: '확인', onClick: () => done() }] }); break; }
       case 'path': {
         const o = Game.ovr();

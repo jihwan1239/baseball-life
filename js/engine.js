@@ -509,9 +509,9 @@ const Game = (() => {
     return m;
   }
   const PITCH_ORDER = ['SL', 'CU', 'CH', 'FS', 'FC', 'SI', 'SW'];
-  function doTraining(id, sub, lesson) {
+  function doTraining(id, sub, lesson, mOverride) {
     const out = [];
-    const m = trainMult() * (lesson ? 1.8 : 1);
+    const m = mOverride || trainMult() * (lesson ? 1.8 : 1);
     if (id === 'pitch') {
       let k = sub;
       if (!k || !S.pit.pitches[k]) {
@@ -552,14 +552,23 @@ const Game = (() => {
 
   function actions() {
     const pro = S.phase === 'KBO' || S.phase === 'MLB';
+    if (pro && campKey()) {
+      if (!campActive()) return [{ id: 'campPlan', name: '캠프 계획', icon: 'cal', sub: '집중 훈련과 프로그램 고르기' }];
+      const nm = PERIOD_INFO[periodKey()].name;
+      return [
+        { id: 'camp', name: `${nm} 1주`, icon: 'train', sub: `${S.camp.name} 집중 · ${S.camp.packName}` },
+        { id: 'campLight', name: '컨디션 조절', icon: 'rest', sub: '훈련 절반 · 피로 크게 회복' },
+        { id: 'campAll', name: '끝까지 진행', icon: 'chart', sub: `남은 ${campWeeksLeft()}주 자동 · 피로 높으면 조절` },
+      ];
+    }
     const list = [
       { id: 'train', name: '훈련', icon: 'train', sub: '능력치를 키운다', disabled: S.injury > 0 ? '부상 중' : null },
       { id: 'rest', name: '휴식', icon: 'rest', sub: '피로 회복, 멘탈 회복' },
     ];
     if (pro) {
       list.push({ id: 'lesson', name: '개인 레슨', icon: 'star', sub: `효과 1.8배 · ${won(lessonCost())}`, disabled: S.injury > 0 ? '부상 중' : (S.money < lessonCost() ? '돈 부족' : null) });
-      const adDone = S.flags.adMonth === S.year * 12 + Math.floor(S.week / 4);
-      list.push({ id: 'ad', name: '광고 촬영', icon: 'coin', sub: S.fame >= 25 ? (inRegular() ? '시즌 중엔 인기·신뢰 하락' : `수입 약 ${won(adIncome())}`) : '인기 25 이상', disabled: S.fame < 25 ? '인기 부족' : adDone ? '이번 달 촬영 완료' : null });
+      const adDone = S.flags.adYear === S.year;
+      list.push({ id: 'ad', name: '광고 촬영', icon: 'coin', sub: S.fame > 90 ? (adDone ? '올해 촬영 완료 · 1년에 1번' : inRegular() ? '시즌 중엔 인기·신뢰 하락' : `수입 약 ${won(adIncome())} · 1년에 1번`) : `인기 90 초과 필요 (지금 ${Math.round(S.fame)})`, disabled: S.fame <= 90 ? '인기가 90을 넘어야 광고가 들어와요' : adDone ? '광고는 1년에 한 번만 찍을 수 있어요' : null });
       list.push({ id: 'fan', name: '팬 서비스', icon: 'heart', sub: '인기 ↑ 멘탈 ↑' });
     } else {
       list.push({ id: 'video', name: '영상 분석', icon: 'chart', sub: '선구안/제구 소폭 ↑, 피로 적음' });
@@ -573,6 +582,76 @@ const Game = (() => {
 
   // ---------- 주간 진행 ----------
   // planWeek: 행동 적용 + 경기 일정 생성, 중요 경기가 있으면 key 반환
+  // ---------- 스프링캠프 / 마무리 훈련: 집중 훈련 ----------
+  const CAMP_PACKS = [
+    { id: 'team', name: '구단 기본 프로그램', cost: 0, mult: 1.0, fat: 7, desc: '팀 훈련 일정 그대로. 추가 비용 없음' },
+    { id: 'trainer', name: '개인 트레이너 동행', cost: 30000000, mult: 1.2, fat: 5, mental: 1, desc: '전담 트레이너가 컨디션까지 관리' },
+    { id: 'academy', name: '미국 트레이닝 아카데미', cost: 100000000, mult: 1.4, fat: 5, sub: true, desc: '데이터 분석 장비로 약점까지 함께 보완' },
+    { id: 'legend', name: '레전드 1:1 특별 과외', cost: 300000000, mult: 1.7, fat: 6, sub: true, burst: true, desc: '은퇴한 레전드가 직접 지도. 가끔 눈에 띄게 성장' },
+  ];
+  const campCost = (p) => Math.round(p.cost * (S.phase === 'MLB' ? 2 : 1));
+  function campKey() { const k = periodKey(); return (k === 'camp' || k === 'finish') && (S.phase === 'KBO' || S.phase === 'MLB') ? `${S.year}-${k}` : null; }
+  function campActive() { const k = campKey(); return !!k && S.camp && S.camp.key === k; }
+  function campNeedsPlan() { const k = campKey(); return !!k && !(S.camp && S.camp.key === k); }
+  function campInfo() {
+    const k = campKey();
+    return { packs: CAMP_PACKS.map((p) => Object.assign({}, p, { cost: campCost(p) })), focus: trainingList(), name: k ? PERIOD_INFO[periodKey()].name : '', camp: campActive() ? S.camp : null, weeks: k ? campWeeksLeft() : 0 };
+  }
+  function campWeeksLeft() {
+    let n = 0; const k = periodKey();
+    for (let w = S.week; w < 48 && periodKey(w) === k; w++) n++;
+    return n;
+  }
+  function setCamp(focus, pitch, packId) {
+    const p = CAMP_PACKS.find((x) => x.id === packId) || CAMP_PACKS[0];
+    const cost = campCost(p);
+    if (S.money < cost) return { ok: false, msg: '돈이 부족해요.' };
+    S.money -= cost;
+    const t = TRAININGS.find((x) => x.id === focus);
+    S.camp = { key: campKey(), focus, pitch: pitch || null, pack: p.id, name: t ? t.name : focus, packName: p.name, gain: {}, weeks: 0 };
+    addLog(`${PERIOD_INFO[periodKey()].name}: ${t ? t.name : focus} 집중 (${p.name}${cost ? `, ${won(cost)}` : ''})`);
+    save();
+    return { ok: true };
+  }
+  function campWeek(W, light) {
+    const c = S.camp, p = CAMP_PACKS.find((x) => x.id === c.pack);
+    const out = [];
+    const add = (k, g) => { if (g > 0) { c.gain[k] = +((c.gain[k] || 0) + g).toFixed(1); out.push(`${ATTR_NAME[k]} +${g}${k === 'vel' ? 'km/h' : ''}`); } };
+    c.weeks++;
+    if (S.injury > 0) {
+      S.injury = Math.max(0, S.injury - 1); S.fat = clamp(S.fat - 15, 0, 100);
+      W.gains = ['재활 훈련', '피로 회복']; W.lines.push(`${PERIOD_INFO[periodKey()].name} 재활 (${c.weeks}주차)`); return;
+    }
+    const m = trainMult() * p.mult * (light ? 0.5 : 1.1);
+    if (c.focus === 'pitch') {
+      out.push(...doTraining('pitch', c.pitch, false, m));
+      if (p.sub) add('ctl', growAttr('ctl', m * 0.3));
+    } else {
+      const t = TRAININGS.find((x) => x.id === c.focus);
+      add(t.attr, growAttr(t.attr, m));
+      if (t.extra) add(t.extra, growAttr(t.extra, m * 0.45));
+      if (p.sub) {
+        // 아카데미 이상: 가장 약한 보조 능력치도 함께
+        const keys = isBatter() ? ['con', 'pow', 'eye', 'spd', 'def'] : ['ctl', 'stf', 'sta'];
+        const obj = (k) => (['ctl', 'stf', 'sta'].includes(k) ? S.pit : S.bat)[k];
+        const weak = keys.filter((k) => k !== t.attr).sort((a, b) => obj(a) - obj(b))[0];
+        add(weak, growAttr(weak, m * 0.35));
+      }
+      if (p.burst && !light && chance(0.15)) { const g = growAttr(t.attr, m * 1.2); add(t.attr, g); out.push('레전드의 한마디에 감을 잡았다!'); }
+    }
+    if (light) { S.fat = clamp(S.fat - 18, 0, 100); S.mental = clamp(S.mental + 3, 0, 100); out.push('컨디션 조절 (피로 회복)'); }
+    else { S.fat = clamp(S.fat + p.fat, 0, 100); if (p.mental) S.mental = clamp(S.mental + p.mental, 0, 100); }
+    W.gains = out;
+    W.lines.push(`${PERIOD_INFO[periodKey()].name} ${c.weeks}주차: ${c.name} 집중${light ? ' (가볍게)' : ''}`);
+  }
+  function campSummary(prevKey) {
+    const c = S.camp;
+    if (!c || !c.key.endsWith(prevKey)) return;
+    const g = Object.entries(c.gain).map(([k, v]) => `${ATTR_NAME[k]} +${v}`).join(', ');
+    S.pending.push({ type: 'msg', data: { title: `${PERIOD_INFO[prevKey].name} 결산`, icon: 'chart', text: `${c.packName}에서 ${c.weeks}주 동안 ${c.name}에 집중했다.\n\n${g || '눈에 띄는 변화는 없었다.'}` } });
+    S.camp = null;
+  }
+
   function planWeek(act, sub) {
     const W = { act, lines: [], gains: [], games: [], key: null, money0: S.money, fame0: S.fame, anim: { spray: [], pitches: [] } };
     S.wk = W;
@@ -581,7 +660,8 @@ const Game = (() => {
     return W.key;
   }
   function applyAction(act, sub, W) {
-    if (act === 'train') { W.gains = doTraining(sub.id, sub.pitch, false); W.lines.push(`${sub.name}`); }
+    if (act === 'camp' || act === 'campLight') { if (campActive()) campWeek(W, act === 'campLight'); }
+    else if (act === 'train') { W.gains = doTraining(sub.id, sub.pitch, false); W.lines.push(`${sub.name}`); }
     else if (act === 'lesson') {
       S.money -= lessonCost(); W.gains = doTraining(sub.id, sub.pitch, true); W.lines.push(`개인 레슨: ${sub.name}`);
     } else if (act === 'rest') {
@@ -603,7 +683,7 @@ const Game = (() => {
       W.gains = ['아르바이트 +80만원', '피로 +9']; W.lines.push('아르바이트');
     } else if (act === 'ad') {
       const inc = adIncome(); S.money += inc; S.fat = clamp(S.fat + 5, 0, 100);
-      S.flags.adMonth = S.year * 12 + Math.floor(S.week / 4);
+      S.flags.adYear = S.year;
       if (inRegular()) {
         S.fame = clamp(S.fame - 8, 0, 100); S.trust = clamp(S.trust - 15, 0, 100);
         W.gains = [`광고 수입 +${won(inc)}`, '인기 -8', '감독 신뢰 -15'];
@@ -842,8 +922,15 @@ const Game = (() => {
     }
     let bats = br && !(S.pos === 'TW' && !amateur() && S.rot % 6 === 1);
     if (br === 'bench') bats = chance(0.45);
+    // 주전도 체력 관리로 가끔 쉰다 (피로, 포수, 나이에 따라)
+    let rested = false;
+    if (bats && br === 'starter' && !amateur() && g.kind !== 'post' && !forcePitch) {
+      const p = clamp(0.007 + Math.max(0, S.fat - 35) * 0.0032 + (S.fpos === 'C' ? 0.07 : 0) + (S.age >= 33 ? 0.025 : 0) + (S.age >= 36 ? 0.03 : 0), 0, 0.3);
+      if (chance(p)) { rested = true; bats = chance(0.25); S.fat = clamp(S.fat - 2, 0, 100); if (S.wk) S.wk.rests = (S.wk.rests || 0) + 1; }
+    }
+    res.rest = rested && !bats; res.pinch = rested && bats;
     if (bats) {
-      const n = br === 'starter' ? (chance(0.25) ? 5 : chance(0.75) ? 4 : 3) : 1;
+      const n = br === 'starter' && !rested ? (chance(0.25) ? 5 : chance(0.75) ? 4 : 3) : 1;
       const b = effBat();
       const t = res.bat; t.G = 1;
       let base = [0, 0, 0];
@@ -1122,7 +1209,7 @@ const Game = (() => {
           else r = simGame(g);
           addStats(weekStats, r.bat); addStats(weekStats, r.pit);
           g.res = r;
-          rep.games.push({ label: g.ser ? `${g.label}` : g.label, sp: oppStarter(g, i), win: r.win, ours: r.ours, theirs: r.theirs, key: !!g.key, title: g.key ? g.title : null, ser: g.ser || null, gi: i, me: gameLine(r) });
+          rep.games.push({ label: g.ser ? `${g.label}` : g.label, sp: oppStarter(g, i), win: r.win, ours: r.ours, theirs: r.theirs, key: !!g.key, title: g.key ? g.title : null, ser: g.ser || null, gi: i, me: gameLine(r), pinch: !!r.pinch });
           if (amateur()) afterHSGame(g, r, rep);
           else {
             if (W.exh) return;
@@ -1138,7 +1225,8 @@ const Game = (() => {
       const pg = weekStats.G || weekStats.PG;
       if (!amateur()) { S.levelWeeks++; if (S.level === 'KBO1' || S.level === 'MLB') S.topWeeks++; }
       // 피로 & 인기
-      const games = W.games.length;
+      const games = W.games.length - (W.rests || 0);
+      if (W.rests) rep.lines.push(`체력 관리로 ${W.rests}경기 선발 제외${W.rests >= 2 ? '. 피로가 많이 쌓였어요' : ''}`);
       S.fat = clamp(S.fat + (isBatter() ? games * (S.fpos === 'C' ? 1.5 : 1.1) : 0) + (weekStats.GS ? 6 : 0) + weekStats.PG * 1.5, 0, 100);
       const top = S.level === 'KBO1' ? 0.25 : S.level === 'MLB' ? 0.45 : amateur() ? 0.1 : 0.05;
       S.fame = clamp(S.fame + top + weekStats.HR * 0.25 + weekStats.W * 0.4 + weekStats.SV * 0.15, 0, 100);
@@ -1176,7 +1264,7 @@ const Game = (() => {
     const b = r.bat, q = r.pit;
     if (b && b.PA) p.push(`${b.AB}타수 ${b.H}안타${b.HR ? ` ${b.HR}홈런` : ''}${b.RBI ? ` ${b.RBI}타점` : ''}`);
     if (q && q.PG) p.push(`${fmtIp(q.OUTS)}이닝 ${q.ER}실점 ${q.PSO}K${q.W ? ' 승' : q.L ? ' 패' : q.SV ? ' 세이브' : ''}`);
-    return p.join(' · ') || (r.bat || r.pit ? '결장' : '');
+    return p.join(' · ') || (r.rest ? '휴식 (체력 관리)' : r.bat || r.pit ? '결장' : '');
   }
   function seriesSummary(games) {
     const out = [];
@@ -1447,6 +1535,8 @@ const Game = (() => {
   };
   function periodChange() {
     const k = periodKey();
+    if (S.lastPeriod && S.lastPeriod !== k && (S.lastPeriod === 'camp' || S.lastPeriod === 'finish')) campSummary(S.lastPeriod);
+    if (S.lastPeriod !== k && (k === 'camp' || k === 'finish') && (S.phase === 'KBO' || S.phase === 'MLB')) S.pending.push({ type: 'campPlan', data: {} });
     if (S.lastPeriod && S.lastPeriod !== k && PERIOD_MSG[k]) {
       const P = period();
       S.pending.push({ type: 'msg', data: { title: P.name, icon: 'cal', text: PERIOD_MSG[k] } });
@@ -2615,7 +2705,7 @@ const Game = (() => {
   return {
     get S() { return S; }, newGame, save, load, hasSave, wipe, rollTalent,
     won, usd, grade, dateStr, ovr, batOVR, pitOVR, velScore, repScore, affiliation, myColors, teamInfo, roleLabel, batRole, pitRole,
-    setRoster, rosterText, rosterInfo, estRanks, awardBadges, requestState, requestTrade, requestPosting, negotiate, negoChance, clauseText, previewDemand: applyDemand, fallbackOffer, actions, trainingList, planWeek, finishWeek, keyPlayOptions, applyKeyResult, preSimFinal, playerForPlay, makeOppPitcher, makeOppBatter,
+    setRoster, rosterText, rosterInfo, estRanks, awardBadges, campInfo, setCamp, campActive, campNeedsPlan, requestState, requestTrade, requestPosting, negotiate, negoChance, clauseText, previewDemand: applyDemand, fallbackOffer, actions, trainingList, planWeek, finishWeek, keyPlayOptions, applyKeyResult, preSimFinal, playerForPlay, makeOppPitcher, makeOppBatter,
     resolve, standings, inRegular, isOffseason, league, seasonCfg, fmtAvg, fmtOps, fmtEra, fmtIp, war, seasonSummary, careerTotals,
     contact, reply, obsessInfo, talkTopics, talkFinish, choiceInfo, loveInfo, cheating, mainLove, dateRiskOf: (pid) => dateRisk(DATE_PLACES.find((x) => x.id === pid)), canContact, doDate, gift, confess, proposeCheck, propose, dateBlocked, relStage, STAGE_NAME, heroLine,
     FPOS, fpos, setFpos(k) { if (FPOS[k]) { S.fpos = k; addLog(`포지션을 ${FPOS[k].name}로 바꿨다.`); save(); } },
