@@ -1758,12 +1758,14 @@ const Game = (() => {
     const p = (x) => chance(clamp(x, 0, 0.97));
     const rookie = S.career.filter((c) => c.lg === lg && c.st && (c.level === '1군' || c.level === '메이저리그')).length <= 1 && !S.flags['roy' + lg];
     if (lg === 'KBO') {
-      if (t.PA >= 400 && p((avg - 0.325) / 0.035)) got.push('타격왕');
-      if (p((t.HR - 28) / 10)) got.push('홈런왕');
-      if (ip >= 100 && p((t.W - 13) / 4)) got.push('다승왕');
-      if (ip >= 140 && p((3.0 - era) / 0.6)) got.push('평균자책점왕');
-      if (p((t.PSO - 165) / 40)) got.push('탈삼진왕');
-      if (p((t.SV - 28) / 8)) got.push('세이브왕');
+      // 개인 타이틀은 홈 화면의 추정 순위와 같은 기준으로 (1위일 때만)
+      const R = estRanks() || {};
+      if (R.avg === 1) got.push('타격왕');
+      if (R.hr === 1) got.push('홈런왕');
+      if (R.w === 1) got.push('다승왕');
+      if (R.era === 1) got.push('평균자책점왕');
+      if (R.so === 1) got.push('탈삼진왕');
+      if (R.sv === 1) got.push('세이브왕');
       if (rookie && p((w - 1.5) / 2)) { got.push('신인왕'); S.flags.royKBO = true; }
       if (p((w - 3.5) / 2)) got.push(t.PA >= 300 ? `골든글러브(${fpos().name})` : '골든글러브(투수)');
       if (p((w - 6.5) / 2)) got.push('정규시즌 MVP');
@@ -1813,14 +1815,23 @@ const Game = (() => {
       else if (c.kind === 'mlb' && c.optout && !c.optUsed && c.years > 0 && (c.yearsTotal - c.years) >= c.optout) S.pending.push({ type: 'optout', data: { left: c.years } });
     }
   }
+  // KBO FA 시장 가치: 능력치보다 최근 성적(WAR)과 수상이 크게 좌우한다
+  function kboFaValue(o) {
+    const recent = S.career.filter((c) => c.lg === 'KBO' && c.level === '1군').slice(-2).map((c) => c.war || 0);
+    const w = recent.length ? Math.max(recent[recent.length - 1], recent.reduce((a, b) => a + b, 0) / recent.length) : (S.lastWar || 0);
+    let eok = 8 + clamp(w, 0, 14) * 14 + Math.max(0, o - 60) * 0.6;
+    const recentMvp = (S.awards || []).some((a) => /KBO 정규시즌 MVP/.test(a) && +a.slice(0, 4) >= S.year - 1);
+    if (recentMvp) eok = Math.max(eok, 190 + rnd(0, 20));
+    return clamp(eok, 5, 260) * 1e8;
+  }
   function faOffers() {
     const o = ovr(), out = [];
     const ageF = S.age >= 34 ? 0.55 : S.age >= 31 ? 0.8 : 1;
     const kboTeams = shuffle(KBO_TEAMS);
     if (S.phase === 'KBO') kboTeams.sort((a, b) => (a.id === S.team ? -1 : b.id === S.team ? 1 : 0));
     kboTeams.slice(0, 3).forEach((t, i) => {
-      const total = Math.max(5, 8 + (o - 55) * 4.2) * 1e8 * ageF * rnd(0.9, 1.15) * (i === 0 && S.phase === 'KBO' ? 0.95 : 1);
       const years = S.age >= 33 ? 2 : S.age >= 30 ? 3 : 4;
+      const total = kboFaValue(o) * ageF * ({ 2: 0.6, 3: 0.8, 4: 1 }[years]) * rnd(0.92, 1.12) * (i === 0 && S.phase === 'KBO' ? 0.95 : 1);
       out.push({ lg: 'KBO', team: t.id, years, total: Math.round(total / 1e7) * 1e7, bonus: Math.round(total * 0.35 / 1e7) * 1e7, interest: offerInterest(t.id) });
     });
     if (o >= 66) {
@@ -1895,24 +1906,30 @@ const Game = (() => {
     const t = S.st;
     const rk = (z, n) => clamp(1 + Math.round(n * (1 - phi(z))), 1, n);
     const out = { games: tg };
+    // 시즌마다 리그 수준이 조금씩 다르다 (타고투저/투고타저)
+    S.lgVar = S.lgVar || {};
+    const vk = S.year + S.phase;
+    if (!S.lgVar[vk]) S.lgVar = { [vk]: { avg: rnd(-0.008, 0.008), hr: rnd(-0.15, 0.15), era: rnd(-0.3, 0.3), w: rnd(-0.12, 0.12), sv: rnd(-0.15, 0.15), so: rnd(-0.12, 0.12) } };
+    const V = S.lgVar[vk];
     const nb = kbo ? 60 : 135, np = kbo ? 25 : 58;
     if (t.AB) {
       const avg = t.H / t.AB;
-      const m = kbo ? 0.272 : 0.248;
+      const m = (kbo ? 0.272 : 0.248) + V.avg;
       const sd = Math.sqrt(0.026 * 0.026 + 0.2 / Math.max(60, tg * 4.2));
       out.avgQ = t.PA >= tg * 3.1;
       out.avg = out.avgQ ? rk((avg - m) / sd, nb) : null;
-      const hm = (kbo ? 12 : 17) * f, hs = (kbo ? 8.5 : 10) * f + 1.2;
+      const hm = (kbo ? 12 : 17) * f * (1 + V.hr), hs = (kbo ? 8.5 : 10) * f * (1 + V.hr) + 1.2;
       out.hr = t.HR > 0 ? rk((t.HR - hm) / hs, nb) : null;
     }
     if (t.OUTS) {
       const ip = t.OUTS / 3, era = t.ER * 27 / t.OUTS;
-      const m = kbo ? 4.1 : 3.95;
+      const m = (kbo ? 4.1 : 3.95) + V.era;
       const sd = 0.8 + 2.5 / Math.sqrt(Math.max(10, ip));
       out.eraQ = ip >= tg;
       out.era = out.eraQ ? rk((m - era) / sd, np) : null;
-      out.w = t.W > 0 ? rk((t.W - 7 * f) / (3.6 * f + 0.8), kbo ? 45 : 100) : null;
-      out.sv = t.SV > 0 ? rk((t.SV - 6 * f) / (9 * f + 0.8), kbo ? 30 : 60) : null;
+      out.w = t.W > 0 ? rk((t.W - 7 * f * (1 + V.w)) / (3.6 * f + 0.8), kbo ? 45 : 100) : null;
+      out.sv = t.SV > 0 ? rk((t.SV - 6 * f * (1 + V.sv)) / (9 * f + 0.8), kbo ? 30 : 60) : null;
+      out.so = t.PSO > 0 ? rk((t.PSO - (kbo ? 100 : 120) * f * (1 + V.so)) / ((kbo ? 45 : 55) * f + 3), kbo ? 45 : 100) : null;
     }
     return out;
   }
