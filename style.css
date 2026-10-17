@@ -314,3 +314,21 @@ input:focus, select:focus { border-color: var(--blue); }
 .chat-big img { display: block; width: 100%; height: 42vh; object-fit: contain; }
 .chat-log.short { max-height: 26vh; }
 .cb-type { align-self: center; font-size: 11px; font-weight: 700; color: var(--team); background: color-mix(in srgb, var(--team) 10%, var(--card)); padding: 3px 10px; border-radius: 999px; margin: 4px 0 2px; }
+.tag.obs { background: #3b0d14; color: #ff8a9a; }
+.call-in { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 0 8px; text-align: center; }
+.call-av { width: 120px; height: 120px; border-radius: 50%; overflow: hidden; box-shadow: 0 0 0 6px color-mix(in srgb, var(--good) 25%, transparent); animation: ring 1.2s ease-in-out infinite; }
+.call-av img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 15%; }
+.call-in b { font-size: 20px; } .call-in small { color: var(--sub); }
+@keyframes ring { 0%,100% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 30%, transparent); } 50% { box-shadow: 0 0 0 14px color-mix(in srgb, var(--good) 8%, transparent); } }
+.obs-bar { display: grid; grid-template-columns: 40px 1fr 32px; align-items: center; gap: 8px; font-size: 13px; color: var(--bad); font-weight: 700; margin-bottom: 8px; }
+.kpi .rk { display: block; font-size: 11px; color: var(--sub); margin-top: 1px; font-weight: 600; }
+.kpi .rk.top { color: var(--team); }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.badge { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; font-weight: 700; padding: 4px 9px; border-radius: 999px; background: var(--card2); color: var(--text); border: 1px solid var(--line); }
+.badge em { font-style: normal; opacity: 0.75; }
+.badge.b-gold { background: linear-gradient(135deg, #fff1c2, #f5c84c); color: #5a3d00; border-color: #e9b93a; }
+.badge.b-ring { background: linear-gradient(135deg, #ffe0e3, #ff9aa6); color: #5c0d18; border-color: #f07b8a; }
+.badge.b-glove { background: linear-gradient(135deg, #fff6dc, #e8d29a); color: #4d3b0a; border-color: #d8bf76; }
+.badge.b-title { background: #e8f0ff; color: #1d3f8a; border-color: #b8cdf5; }
+.badge.b-green { background: #e3f7e9; color: #146c33; border-color: #a8dfb9; }
+.badge.b-more { color: var(--sub); }
