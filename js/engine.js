@@ -613,8 +613,8 @@ const Game = (() => {
       S.fame = clamp(S.fame + 3, 0, 100); S.mental = clamp(S.mental + 5, 0, 100); S.fat = clamp(S.fat + 2, 0, 100);
       W.gains = ['인기 +3', '멘탈 +5']; W.lines.push('팬 사인회');
     } else if (act === 'date') {
-      const r = doDate(sub.hid, sub.place);
-      W.gains = r.gains; W.lines.push(`데이트: ${r.place}`); W.dateLine = r.line; W.dateHid = sub.hid; W.dateNarr = !!r.narr;
+      const r = doDate(sub.hid, sub.place, sub.bonus || 0);
+      W.gains = r.gains; W.lines.push(`데이트: ${r.place}`); W.dateLine = r.line; W.dateHid = sub.hid; W.dateNarr = !!r.narr; W.dateNight = !!r.night;
     }
   }
 
@@ -1107,7 +1107,7 @@ const Game = (() => {
   // ---------- 주간 마무리 ----------
   function finishWeek() {
     const W = S.wk;
-    const rep = { title: dateStr(), period: period(), anim: W.anim, dateNarr: W.dateNarr, lines: [], gains: W.gains || [], games: [], dateLine: W.dateLine, dateHid: W.dateHid, events: [] };
+    const rep = { title: dateStr(), period: period(), anim: W.anim, dateNarr: W.dateNarr, dateNight: W.dateNight, lines: [], gains: W.gains || [], games: [], dateLine: W.dateLine, dateHid: W.dateHid, events: [] };
     const weekStats = blankStats();
     // 경기 처리
     if (W.games && W.games.length) {
@@ -1976,6 +1976,35 @@ const Game = (() => {
     const tier = st >= 4 ? 3 : st >= 3 ? 2 : st >= 2 ? 1 : 0;
     return pick(h.talk[tier]);
   }
+  function talkTier(id) { const st = relStage(S.rel[id].aff, id); return st >= 4 ? 4 : st >= 3 ? 3 : 1; }
+  function talkTopics(id, n, place) {
+    const tier = talkTier(id);
+    S.flags.talkSeen = S.flags.talkSeen || {};
+    const seen = S.flags.talkSeen[id] || [];
+    const all = (TALKS[id] || []).map((t, i) => Object.assign({ i }, t)).filter((t) => t.st <= tier);
+    const fresh = all.filter((t) => !seen.includes(t.i));
+    const pool = (fresh.length >= n ? fresh : all).slice();
+    if (place) {
+      const casual = tier >= 4;
+      const pt = (casual ? DATE_TALK : DATE_TALK_P)[place] || DATE_TALK[place];
+      return [pt, pick(DATE_END[casual ? 'c' : 'p'])].filter(Boolean);
+    }
+    // 연인 이상은 반말 대화만, 그 전은 존댓말 대화만
+    const pool2 = tier >= 4 ? all.filter((t) => t.st === 4) : pool;
+    const top = shuffle(pool2.filter((t) => t.st === tier));
+    const rest = shuffle(pool2.filter((t) => t.st !== tier));
+    const out = top.slice(0, Math.min(2, n)).concat(rest).concat(top.slice(2)).slice(0, n);
+    S.flags.talkSeen[id] = seen.concat(out.map((t) => t.i)).slice(-5);
+    return out.map((t) => ({ q: t.q, a: t.a }));
+  }
+  function talkFinish(id, gain, mode) {
+    if (mode === 'date') return clamp(Math.round(gain * 0.5), -2, 5);
+    const g = clamp(Math.round(gain * 0.7) + (S.partner === id || S.spouse === id ? 1 : 0), -3, 8);
+    S.rel[id].aff = clamp(S.rel[id].aff + g, 0, 100);
+    S.mental = clamp(S.mental + (gain >= 6 ? 4 : 2), 0, 100);
+    save();
+    return g;
+  }
   function canContact(id) { return S.contactWeek[id] !== S.year * 100 + S.week; }
   function contact(id) {
     const h = HEROINES.find((x) => x.id === id);
@@ -2000,13 +2029,13 @@ const Game = (() => {
   function dateBlocked(id) {
     return null;
   }
-  function doDate(id, placeId) {
+  function doDate(id, placeId, bonus = 0) {
     const h = HEROINES.find((x) => x.id === id);
     const pl = DATE_PLACES.find((x) => x.id === placeId);
     S.money -= pl.cost;
     const car = S.car ? CARS.find((x) => x.id === S.car).date : 0;
     let g = pl.aff * (h.fav === pl.id ? 1.5 : 1) * (1 + car * 0.04) * rnd(0.85, 1.2) + S.fame * 0.02;
-    g = Math.round(g);
+    g = Math.round(g + bonus);
     const before = S.rel[id].aff;
     S.rel[id].aff = clamp(S.rel[id].aff + g, 0, 100);
     S.lastDate[id] = S.stats.weeks;
@@ -2019,13 +2048,14 @@ const Game = (() => {
       S.flags.kiss = S.flags.kiss || {}; S.flags.kiss[id] = true;
       const lines = (HERO_NIGHT[id] || []).concat(NIGHT_LINES);
       const line = chance(0.7) && HERO_NIGHT[id] ? pick(HERO_NIGHT[id]) : pick(lines);
-      return { gains: [`${h.name} 호감도 +${g}`, `피로 +${pl.fat}`, `멘탈 +${pl.mental}`].concat(tail), place: pl.name, line, narr: true };
+      return { gains: [`${h.name} 호감도 +${g}`, `피로 +${pl.fat}`, `멘탈 +${pl.mental}`].concat(tail), place: pl.name, line, narr: true, night: true };
     }
     S.fat = clamp(S.fat - pl.cond, 0, 100);
     S.mental = clamp(S.mental + 5, 0, 100);
     const gains = [`${h.name} 호감도 +${g}`, `피로 -${pl.cond}`, '멘탈 +5'].concat(tail);
     if (h.fav === pl.id) gains.unshift('좋아하는 장소! 반응이 아주 좋다');
     S.flags.kiss = S.flags.kiss || {};
+    if (pl.id === 'trip' && relStage(S.rel[id].aff, id) >= 3) { S.flags.kiss[id] = true; return { gains, place: pl.name, line: pick(TRIP_LINES), narr: true, night: true }; }
     if (!S.flags.kiss[id] && S.rel[id].aff >= 50 && FIRST_KISS[id]) {
       S.flags.kiss[id] = true; S.mental = clamp(S.mental + 8, 0, 100);
       gains.unshift('첫 키스'); 
@@ -2433,7 +2463,7 @@ const Game = (() => {
     won, usd, grade, dateStr, ovr, batOVR, pitOVR, velScore, repScore, affiliation, myColors, teamInfo, roleLabel, batRole, pitRole,
     setRoster, rosterText, rosterInfo, requestState, requestTrade, requestPosting, negotiate, negoChance, clauseText, previewDemand: applyDemand, fallbackOffer, actions, trainingList, planWeek, finishWeek, keyPlayOptions, applyKeyResult, preSimFinal, playerForPlay, makeOppPitcher, makeOppBatter,
     resolve, standings, inRegular, isOffseason, league, seasonCfg, fmtAvg, fmtOps, fmtEra, fmtIp, war, seasonSummary, careerTotals,
-    contact, reply, choiceInfo, loveInfo, cheating, mainLove, dateRiskOf: (pid) => dateRisk(DATE_PLACES.find((x) => x.id === pid)), canContact, doDate, gift, confess, proposeCheck, propose, dateBlocked, relStage, STAGE_NAME, heroLine,
+    contact, reply, talkTopics, talkFinish, choiceInfo, loveInfo, cheating, mainLove, dateRiskOf: (pid) => dateRisk(DATE_PLACES.find((x) => x.id === pid)), canContact, doDate, gift, confess, proposeCheck, propose, dateBlocked, relStage, STAGE_NAME, heroLine,
     FPOS, fpos, setFpos(k) { if (FPOS[k]) { S.fpos = k; addLog(`포지션을 ${FPOS[k].name}로 바꿨다.`); save(); } },
     buyHouse, sellHouse, buyCar, sellCar, lessonCost, derbyResult, simDerby, addLog, advance, PKEYS, fenceDist,
     weekSeries, period, timeline, PERIOD_INFO, amateur, amCal, chartLabel, LEVEL_LABEL, POS_LABEL, ATTR_NAME, PITCH_ORDER, HS_CAL, ROUNDS, isBatter, isPitcher, clamp, rnd, ri, pick, chance,

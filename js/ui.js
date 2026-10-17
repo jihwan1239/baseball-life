@@ -55,7 +55,7 @@ const UI = (() => {
   function bar(v, max = 100, cls = '') { return `<div class="bar ${cls}"><i style="width:${Math.max(0, Math.min(100, v / max * 100))}%"></i></div>`; }
   function gradeTag(v) { const g = Game.grade(v); return `<span class="gr gr-${g}">${g}</span>`; }
   function starStr(n) { return '★'.repeat(n) + '☆'.repeat(5 - n); }
-  function photo(id) { return `<img src="images/${id}.jpg" alt="" onerror="this.remove()">`; }
+  function photo(id, night) { return night ? `<img src="images/${id}_night.jpg" alt="" onerror="this.onerror=null;this.src='images/${id}.jpg'">` : `<img src="images/${id}.jpg" alt="" onerror="this.remove()">`; }
   function toast(t) { const e = $('#toast'); e.textContent = t; e.className = 'on'; clearTimeout(e._t); e._t = setTimeout(() => (e.className = ''), 1800); }
 
   // ---------- 시트 ----------
@@ -510,7 +510,7 @@ const UI = (() => {
     if (rep.gains && rep.gains.length) parts.push(`<div class="chips" style="margin:8px 0">${rep.gains.map((g) => `<span class="chip">${esc(g)}</span>`).join('')}</div>`);
     if (rep.dateLine && rep.dateHid) {
       const h = HEROINES.find((x) => x.id === rep.dateHid);
-      if (rep.dateNarr) parts.push(`<div class="night"><div class="night-ph">${photo(h.id)}</div><p>${esc(rep.dateLine)}</p></div>`);
+      if (rep.dateNarr) parts.push(rep.dateNight ? `<div class="night full"><div class="night-img">${photo(h.id, true)}</div><p>${esc(rep.dateLine)}</p></div>` : `<div class="night"><div class="night-ph">${photo(h.id)}</div><p>${esc(rep.dateLine)}</p></div>`);
       else parts.push(`<div class="bubble"><div class="who">${h.name}</div>${esc(rep.dateLine)}</div>`);
     }
     const anim = rep.anim;
@@ -767,11 +767,8 @@ const UI = (() => {
           const x = e.target.closest('[data-h]'); if (!x || x.disabled) return;
           const a = x.dataset.h; close();
           if (a === 'call') {
-            const res = Game.contact(id);
-            sheet({
-              title: h.name, body: `<div class="hd-ph" style="aspect-ratio:1/1;max-height:30vh">${h.name.slice(-2)}${photo(h.id)}</div><div class="bubble">${esc(res.line)}</div><p class="small muted">어떻게 답할까요?</p>`,
-              buttons: REPLY_TONES.map((t) => ({ label: t.label, cls: 'sub opt', onClick: () => { const r2 = Game.reply(id, t.id); talk(h, [r2.text], `${r2.like ? '반응이 좋아요! ' : ''}호감 +${r2.gain}`, () => heroDetail(id)); } })),
-            });
+            Game.contact(id);
+            chat(h, Game.talkTopics(id, 3), '연락', (gain) => { const g = Game.talkFinish(id, gain, 'call'); return `대화 끝 · 호감 ${g >= 0 ? '+' : ''}${g}`; }, () => heroDetail(id));
           }
           else if (a === 'date') datePicker(h);
           else if (a === 'gift') giftPicker(h);
@@ -781,6 +778,36 @@ const UI = (() => {
       },
     });
   }
+  // 대화 티키타카: 그녀 말 → 내 선택 → 그녀 반응, 여러 번
+  function chat(h, topics, where, finish, then) {
+    const log = [];
+    let i = 0, gain = 0;
+    const night = /특급|호텔|해외/.test(where);
+    const head = `<div class="chat-h"><div class="chat-av">${photo(h.id, night)}</div><div><b>${h.name}</b><small>${where}</small></div></div>`;
+    const her = (t) => `<div class="cb her">${esc(t)}</div>`;
+    const me = (t) => `<div class="cb me">${esc(t)}</div>`;
+    const draw = (extra) => `${head}${night ? `<div class="chat-big">${photo(h.id, true)}</div>` : ''}<div class="chat-log ${night ? 'short' : ''}">${log.join('')}${extra || ''}</div>`;
+    const scroll = (b) => { const l = $('.chat-log', b); if (l) l.scrollTop = l.scrollHeight; };
+    const step = () => {
+      const t = topics[i];
+      log.push(her(t.q));
+      sheet({
+        title: '', body: draw(), onRender: scroll,
+        buttons: shuffle(t.a.slice()).map((o) => ({ label: esc(o[0]), cls: 'sub opt', onClick: () => {
+          log.push(me(o[0])); log.push(her(o[1])); gain += o[2];
+          i++;
+          if (i < topics.length) step(); else end();
+        } })),
+      });
+    };
+    const end = () => {
+      const msg = finish(gain);
+      sheet({ title: '', body: draw(`<div class="chat-end">${esc(msg)}</div>`), onRender: scroll, buttons: [{ label: '확인', onClick: then }] });
+    };
+    if (!topics.length) return then();
+    step();
+  }
+  function shuffle(a) { for (let k = a.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [a[k], a[j]] = [a[j], a[k]]; } return a; }
   function talk(h, lines, extra, then) {
     sheet({ title: h.name, body: `<div class="hd-ph" style="aspect-ratio:1/1;max-height:30vh">${h.name.slice(-2)}${photo(h.id)}</div>${lines.map((l) => `<div class="bubble">${esc(l)}</div>`).join('')}${extra ? `<p style="color:var(--bad);font-weight:600">${extra}</p>` : ''}`, buttons: [{ label: '확인', onClick: then }] });
   }
@@ -791,7 +818,7 @@ const UI = (() => {
       title: `${h.name}와 어디 갈까요?`, dismiss: true,
       body: `<div class="list">${DATE_PLACES.filter((p) => !p.special || Game.relStage(S.rel[h.id].aff, h.id) >= p.stage).map((p) => { const rk = Game.cheating(h.id) ? ` · 들킬 위험 +${Game.dateRiskOf(p.id)}` : ''; const why = p.needCar && !S.car ? '차가 있어야 해요' : p.offseason && !off ? '비시즌에만 가능' : S.money < p.cost ? '돈이 부족해요' : ''; return `<button class="li ${p.special ? 'special' : ''}" data-p="${p.id}" ${why ? 'disabled' : ''}><div class="tx"><b>${p.name}${h.fav === p.id ? ' ♥' : ''}</b><small>${why || (p.special ? `둘만의 밤 · 피로 +${p.fat} · 멘탈 +${p.mental}` : `피로 -${p.cond}`) + (why ? '' : rk)}</small></div><span class="val">${Game.won(p.cost)}</span></button>`; }).join('')}</div><p class="hint">♥ 표시는 ${h.name}이(가) 좋아하는 곳이에요.${Game.cheating(h.id) ? ' 연인 몰래 만나면 의심도가 쌓이고, 높을수록 들킬 확률이 올라가요.' : ''}</p>`,
       buttons: [{ label: '취소', cls: 'sub' }],
-      onRender: (b, close) => { b.onclick = (e) => { const x = e.target.closest('[data-p]'); if (!x || x.disabled) return; close(); runWeek('date', { hid: h.id, place: x.dataset.p }); }; },
+      onRender: (b, close) => { b.onclick = (e) => { const x = e.target.closest('[data-p]'); if (!x || x.disabled) return; close(); const place = x.dataset.p; let bonus = 0; chat(h, Game.talkTopics(h.id, 2, place), DATE_PLACES.find((q) => q.id === place).name, (gain) => { bonus = Game.talkFinish(h.id, gain, 'date'); return `분위기 ${bonus >= 3 ? '최고' : bonus >= 1 ? '좋음' : '어색'} · 데이트 호감 보너스 ${bonus >= 0 ? '+' : ''}${bonus}`; }, () => runWeek('date', { hid: h.id, place, bonus })); }; },
     });
   }
   function giftPicker(h) {
