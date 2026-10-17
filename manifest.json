@@ -1,0 +1,15 @@
+{
+  "name": "야구 인생",
+  "short_name": "야구 인생",
+  "description": "고1 야구부에서 메이저리그까지, 야구 커리어 시뮬레이션",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f2f4f6",
+  "theme_color": "#f2f4f6",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
