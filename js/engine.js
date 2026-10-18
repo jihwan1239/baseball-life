@@ -501,8 +501,11 @@ const Game = (() => {
     }
     return out;
   }
+  const hasStaff = (k) => !!(S.staff && S.staff[k]);
+  const hasFac = (k) => !!(S.facil && S.facil.includes(k));
   function trainMult() {
     let m = ageMult();
+    m *= (hasStaff('analyst') ? 1.1 : 1) * (hasFac('gym') ? 1.06 : 1) * (hasFac('lab') ? 1.08 : 1);
     if (S.fat > 70) m *= 0.55; else if (S.fat > 50) m *= 0.82;
     m *= 0.9 + S.mental / 500;
     m *= PERIOD_INFO[periodKey()].train;
@@ -536,7 +539,7 @@ const Game = (() => {
       if (t.extra) { const g2 = growAttr(t.extra, m * 0.5); out.push(`${ATTR_NAME[t.extra]} +${g2}`); }
     }
     S.fat = clamp(S.fat + (lesson ? 18 : 13) + rnd(-2, 2), 0, 100);
-    if (S.fat > 78 && chance(0.09)) out.push(injure(ri(1, 3)));
+    if (S.fat > 78 && chance(0.09 * (hasStaff('nutri') ? 0.5 : 1))) out.push(injure(ri(1, 3)));
     return out;
   }
   const ATTR_NAME = { con: '컨택', pow: '파워', eye: '선구안', spd: '주력', def: '수비', arm: '송구', vel: '구속', ctl: '제구', stf: '구위', sta: '스태미나' };
@@ -578,7 +581,7 @@ const Game = (() => {
     return list;
   }
   const lessonCost = () => (S.phase === 'MLB' ? 15000000 : 5000000);
-  const adIncome = () => Math.round(Math.pow(S.fame, 1.6) * 200000 * (S.phase === 'MLB' ? 2 : 1) / 1e4) * 1e4;
+  const adIncome = () => Math.round(Math.pow(S.fame, 1.6) * 200000 * (S.phase === 'MLB' ? 2 : 1) * (hasStaff('pr') ? 1.3 : 1) / 1e4) * 1e4;
 
   // ---------- 주간 진행 ----------
   // planWeek: 행동 적용 + 경기 일정 생성, 중요 경기가 있으면 key 반환
@@ -667,7 +670,7 @@ const Game = (() => {
     } else if (act === 'rest') {
       const h = HOUSES.find((x) => x.id === S.house);
       const offRest = ['off', 'out', 'winter'].includes(periodKey());
-      S.fat = clamp(S.fat - 34 - h.cond - (offRest ? 12 : 0), 0, 100); S.mental = clamp(S.mental + (offRest ? 9 : 6), 0, 100);
+      S.fat = clamp(S.fat - 34 - h.cond - (offRest ? 12 : 0) - (hasFac('recovery') ? 10 : 0), 0, 100); S.mental = clamp(S.mental + (offRest ? 9 : 6), 0, 100);
       W.gains = offRest ? ['비시즌 휴식: 피로 완전 회복', '멘탈 +9'] : ['피로 크게 회복', '멘탈 +6'];
       if (S.injury > 0) { S.injury = Math.max(0, S.injury - 1); W.gains.push('재활 진행'); }
       W.lines.push('휴식');
@@ -1238,12 +1241,14 @@ const Game = (() => {
         if (isBatter() && weekStats.PA) { growAttr(pick(['con', 'eye', 'pow']), 0.12 * ageMult()); }
         if (isPitcher() && weekStats.PG) { growAttr(pick(['ctl', 'stf']), 0.12 * ageMult()); }
       }
-      if (S.fat > 82 && chance(0.06)) rep.events.push(injure(ri(1, 4)));
+      if (S.fat > 82 && chance(0.06 * (hasStaff('nutri') ? 0.5 : 1))) rep.events.push(injure(ri(1, 4)));
     }
     // 자연 회복
     S.trust = clamp(S.trust + (50 - S.trust) * 0.02, 0, 100);
     const h = HOUSES.find((x) => x.id === S.house);
-    S.fat = clamp(S.fat - 7 - h.cond * 0.5, 0, 100);
+    S.fat = clamp(S.fat - 7 - h.cond * 0.5 - (hasStaff('trainer') ? 4 : 0) - (hasFac('recovery') ? 2 : 0), 0, 100);
+    if (hasStaff('mental')) S.mental = clamp(S.mental + 1.5, 0, 100);
+    if (hasStaff('pr')) S.fame = clamp(S.fame + 0.3, 0, 100);
     S.mental = clamp(S.mental + (S.spouse ? 1 : 0) + h.mental * 0.2 + (S.mental < 50 ? 0.6 : -0.3), 0, 100);
     if (S.car) { const c = CARS.find((x) => x.id === S.car); S.fame = clamp(S.fame + c.fame * 0.01, 0, 100); }
     // 급여, 생활비
@@ -1341,7 +1346,9 @@ const Game = (() => {
       const h = HOUSES.find((x) => x.id === S.house);
       const upkeep = 1500000 + [0, 300000, 800000, 2000000, 5000000, 8000000][h.tier] + S.cars.reduce((a, id) => a + CARS.find((x) => x.id === id).price * 0.003, 0);
       S.money -= upkeep;
-      rep.lines.push(`월급 및 생활비 정산 (생활비 -${won(upkeep)})`);
+      const fee = staffFee() / 12;
+      if (fee) S.money -= fee;
+      rep.lines.push(`월급 및 생활비 정산 (생활비 -${won(upkeep)}${fee ? `, 전담 스태프 -${won(fee)}` : ''})`);
     }
   }
 
@@ -1453,7 +1460,7 @@ const Game = (() => {
     if (amateur()) amateurNewYear();
     // 노화
     if (S.age >= 31) {
-      const d = (S.age - 30) * 0.45;
+      const d = (S.age - 30) * 0.45 * (hasStaff('nutri') ? 0.8 : 1);
       ['con', 'pow', 'eye', 'spd', 'def', 'arm'].forEach((k) => (S.bat[k] = Math.max(15, +(S.bat[k] - rnd(0, 1.6) * d - (k === 'spd' ? d : 0)).toFixed(1))));
       ['ctl', 'stf', 'sta'].forEach((k) => (S.pit[k] = Math.max(15, +(S.pit[k] - rnd(0, 1.4) * d).toFixed(1))));
       S.pit.vel = +(S.pit.vel - rnd(0, 0.9) * d).toFixed(1);
@@ -1748,7 +1755,16 @@ const Game = (() => {
     if (S.phase === 'INDY') S.career[S.career.length - 1].lg = null;
   }
 
+  function charityAward() {
+    const d = S.flags['don' + S.year] || 0;
+    if (d < 500000000) return;
+    const nm = S.phase === 'MLB' ? '로베르토 클레멘테상' : '사랑의 골든글러브';
+    S.awards.push(`${S.year} ${S.phase === 'MLB' ? 'MLB' : 'KBO'} ${nm}`);
+    S.fame = clamp(S.fame + 4, 0, 100);
+    S.pending.push({ type: 'msg', data: { title: nm, icon: 'trophy', text: `올해 ${won(d)}을 기부한 공로로 ${nm}을 받았다.\n그라운드 밖에서도 박수를 받는 선수가 됐다.` } });
+  }
   function awards() {
+    charityAward();
     const t = S.st, lg = league();
     const got = [];
     const w = S.lastWar || 0;
@@ -2507,6 +2523,52 @@ const Game = (() => {
     return { title: info.title, text: msg + (out.length ? '\n\n' + out.join(' · ') : '') };
   }
 
+  // ---------- 돈 쓰기: 스태프 / 시설 / 기부 ----------
+  const spendK = () => (S.phase === 'MLB' ? 2 : 1);
+  function staffFee() { return (S.phase === 'KBO' || S.phase === 'MLB') ? STAFF.filter((x) => hasStaff(x.id)).reduce((a, x) => a + x.fee * spendK(), 0) : 0; }
+  function spendInfo() {
+    return {
+      staff: STAFF.map((x) => Object.assign({}, x, { fee: x.fee * spendK(), on: hasStaff(x.id) })),
+      fac: FACILITIES.map((x) => Object.assign({}, x, { own: hasFac(x.id) })),
+      give: GIVING.map((x) => Object.assign({}, x, { done: (x.once && S.flags['gv_' + x.id]) || (x.yearly && S.flags['gv_' + x.id] === S.year) })),
+      pro: S.phase === 'KBO' || S.phase === 'MLB', fee: staffFee(), donated: S.flags.donTotal || 0, donYear: S.flags['don' + S.year] || 0,
+    };
+  }
+  function toggleStaff(id) {
+    S.staff = S.staff || {};
+    const x = STAFF.find((q) => q.id === id);
+    if (S.staff[id]) { delete S.staff[id]; save(); return `${x.name}와 계약을 끝냈다.`; }
+    const first = Math.round(x.fee * spendK() / 12);
+    if (S.money < first) return null;
+    S.money -= first; S.staff[id] = true;
+    addLog(`${x.name} 고용 (연 ${won(x.fee * spendK())})`);
+    save();
+    return `${x.name} 고용. 첫 달 급여로 ${won(first)} 지출`;
+  }
+  function buyFacility(id) {
+    const x = FACILITIES.find((q) => q.id === id);
+    S.facil = S.facil || [];
+    if (S.facil.includes(id) || S.money < x.price) return null;
+    S.money -= x.price; S.facil.push(id);
+    addLog(`${x.name} 완공 (${won(x.price)})`);
+    save();
+    return `${x.name}을(를) 지었다. ${x.desc}`;
+  }
+  function doGive(id) {
+    const x = GIVING.find((q) => q.id === id);
+    if (S.money < x.cost) return null;
+    if (x.once && S.flags['gv_' + id]) return null;
+    if (x.yearly && S.flags['gv_' + id] === S.year) return null;
+    S.money -= x.cost;
+    S.fame = clamp(S.fame + x.fame, 0, 100); S.mental = clamp(S.mental + x.mental, 0, 100);
+    S.flags['gv_' + id] = x.once ? true : S.year;
+    if (x.donate) { S.flags['don' + S.year] = (S.flags['don' + S.year] || 0) + x.cost; S.flags.donTotal = (S.flags.donTotal || 0) + x.cost; }
+    addLog(`${x.name} (${won(x.cost)})`);
+    save();
+    const extra = x.donate && (S.flags['don' + S.year] >= 500000000) ? `\n올해 기부액 ${won(S.flags['don' + S.year])}. 시즌이 끝나면 상을 받을 수도 있어요.` : '';
+    return `${x.name}. ${x.desc}${extra}`;
+  }
+
   // ---------- 자산 ----------
   function buyHouse(id) {
     const h = HOUSES.find((x) => x.id === id);
@@ -2760,7 +2822,7 @@ const Game = (() => {
   return {
     get S() { return S; }, newGame, save, load, hasSave, wipe, rollTalent,
     won, usd, grade, dateStr, ovr, batOVR, pitOVR, velScore, repScore, affiliation, myColors, teamInfo, roleLabel, batRole, pitRole,
-    setRoster, rosterText, rosterInfo, estRanks, awardBadges, campInfo, setCamp, campActive, campNeedsPlan, requestState, requestTrade, requestPosting, negotiate, negoChance, clauseText, previewDemand: applyDemand, fallbackOffer, actions, trainingList, planWeek, finishWeek, keyPlayOptions, applyKeyResult, preSimFinal, playerForPlay, makeOppPitcher, makeOppBatter,
+    setRoster, rosterText, rosterInfo, estRanks, awardBadges, spendInfo, toggleStaff, buyFacility, doGive, campInfo, setCamp, campActive, campNeedsPlan, requestState, requestTrade, requestPosting, negotiate, negoChance, clauseText, previewDemand: applyDemand, fallbackOffer, actions, trainingList, planWeek, finishWeek, keyPlayOptions, applyKeyResult, preSimFinal, playerForPlay, makeOppPitcher, makeOppBatter,
     resolve, standings, inRegular, isOffseason, league, seasonCfg, fmtAvg, fmtOps, fmtEra, fmtIp, war, seasonSummary, careerTotals,
     contact, reply, endRelation, reconnect, reconnectWait, obsessInfo, talkTopics, talkFinish, choiceInfo, loveInfo, cheating, mainLove, dateRiskOf: (pid) => dateRisk(DATE_PLACES.find((x) => x.id === pid)), canContact, doDate, gift, confess, proposeCheck, propose, dateBlocked, relStage, STAGE_NAME, heroLine,
     FPOS, fpos, setFpos(k) { if (FPOS[k]) { S.fpos = k; addLog(`포지션을 ${FPOS[k].name}로 바꿨다.`); save(); } },

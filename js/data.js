@@ -1058,3 +1058,25 @@ const FAREWELL = {
   seoyun: { p: ['알겠어요. 치료는 앞으로도 제가 계속 맡을게요. 그건 일이니까요.', '…다치지만 마요. 그 말은 트레이너로서 하는 거예요.'], c: ['마지막으로 어깨 한 번만 풀어줄게. 이건 진짜 마지막.', '아프면 다른 트레이너한테 가. 나한테 오면 나 또 흔들려.'] },
   ella: { p: ['Oh. Okay. 통역할 때 어색하지 않게 노력할게요.', 'No hard feelings. …진짜예요.'], c: ['I knew this would happen. 근데 막상 들으니까 영어도 한국어도 안 나와.', 'Take care. 할머니한테는 내가 잘 말해 둘게.'] },
 };
+
+// ===== 돈 쓰는 곳: 전담 스태프(연봉) / 개인 시설(1회) / 기부·효도 =====
+const STAFF = [
+  { id: 'trainer', name: '전담 트레이너', fee: 200000000, desc: '매주 피로 회복 +4' },
+  { id: 'nutri', name: '전담 영양사', fee: 100000000, desc: '부상 위험 절반 · 노화 속도 20% 감소' },
+  { id: 'mental', name: '멘탈 코치', fee: 150000000, desc: '매주 멘탈 +1.5' },
+  { id: 'analyst', name: '개인 데이터 분석가', fee: 300000000, desc: '모든 훈련 효과 1.1배' },
+  { id: 'pr', name: '홍보 매니저', fee: 200000000, desc: '매주 인기 +0.3 · 광고 수입 1.3배' },
+];
+const FACILITIES = [
+  { id: 'gym', name: '집 안 개인 훈련장', price: 800000000, desc: '훈련 효과 1.06배 (영구)' },
+  { id: 'recovery', name: '회복 센터 (산소 캡슐, 냉온탕)', price: 500000000, desc: '휴식 회복 +10 · 매주 피로 회복 +2 (영구)' },
+  { id: 'lab', name: '개인 배팅·피칭 랩', price: 1500000000, desc: '훈련 효과 1.08배 (영구)' },
+];
+const GIVING = [
+  { id: 'don1', name: '사랑의 연탄 기부', cost: 100000000, fame: 2, mental: 3, desc: '인기 +2 · 멘탈 +3', donate: true },
+  { id: 'don5', name: '소아암 환아 치료비 기부', cost: 500000000, fame: 6, mental: 6, desc: '인기 +6 · 멘탈 +6', donate: true },
+  { id: 'don20', name: '유소년 야구 재단 설립', cost: 2000000000, fame: 15, mental: 10, desc: '인기 +15 · 멘탈 +10', donate: true },
+  { id: 'alma', name: '모교 야구부 장비 후원', cost: 300000000, fame: 3, mental: 5, desc: '인기 +3 · 멘탈 +5 · 1년에 한 번', yearly: true },
+  { id: 'parents', name: '부모님께 집 선물', cost: 1000000000, fame: 2, mental: 25, desc: '멘탈 +25 · 평생 한 번', once: true },
+  { id: 'watch', name: '명품 시계 컬렉션', cost: 300000000, fame: 3, mental: 2, desc: '인기 +3 · 평생 한 번', once: true },
+];

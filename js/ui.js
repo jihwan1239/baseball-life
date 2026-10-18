@@ -55,7 +55,16 @@ const UI = (() => {
   function bar(v, max = 100, cls = '') { return `<div class="bar ${cls}"><i style="width:${Math.max(0, Math.min(100, v / max * 100))}%"></i></div>`; }
   function gradeTag(v) { const g = Game.grade(v); return `<span class="gr gr-${g}">${g}</span>`; }
   function starStr(n) { return '★'.repeat(n) + '☆'.repeat(5 - n); }
-  function photo(id, night) { return night ? `<img src="images/${id}_night.jpg" alt="" onerror="this.onerror=null;this.src='images/${id}.jpg'">` : `<img src="images/${id}.jpg" alt="" onerror="this.remove()">`; }
+  function assetPhoto(id, name) {
+    const key = id === 'parents' ? 'apt' : id;
+    return `<img class="asset-photo" src="images/assets/${key}.webp" alt="${esc(name)}" loading="lazy" decoding="async" onerror="this.remove()">`;
+  }
+  function playerStage(age) {
+    return age < 19 ? 'young' : age < 26 ? 'rookie' : age < 33 ? 'prime' : age < 40 ? 'veteran' : 'senior';
+  }
+  function photo(id, night) {
+    if (id === 'player') return `<img src="images/player/${playerStage(G()?.age || 16)}.webp" alt="${G()?.age || 16}세 야구 선수" decoding="async" onerror="this.remove()">`;
+ return night ? `<img src="images/${id}_night.jpg" alt="" onerror="this.onerror=null;this.src='images/${id}.jpg'">` : `<img src="images/${id}.jpg" alt="" onerror="this.remove()">`; }
   function toast(t) { const e = $('#toast'); e.textContent = t; e.className = 'on'; clearTimeout(e._t); e._t = setTimeout(() => (e.className = ''), 1800); }
 
   // ---------- 시트 ----------
@@ -397,7 +406,7 @@ const UI = (() => {
   // ---------- 라이프 ----------
   function life() {
     const S = G();
-    let h = `${header('라이프')}<div class="seg"><button data-life="love" class="${view.life === 'love' ? 'on' : ''}">연애</button><button data-life="asset" class="${view.life === 'asset' ? 'on' : ''}">집 · 차</button></div>`;
+    let h = `${header('라이프')}<div class="seg"><button data-life="love" class="${view.life === 'love' ? 'on' : ''}">연애</button><button data-life="asset" class="${view.life === 'asset' ? 'on' : ''}">집 · 차</button><button data-life="spend" class="${view.life === 'spend' ? 'on' : ''}">투자 · 기부</button></div>`;
     if (view.life === 'love') {
       if (S.phase === 'HS') return h + `<div class="card"><div class="empty">지금은 야구에 집중할 때예요.<br>프로에 입단해 성인이 되면 새로운 만남이 시작돼요.</div></div>`;
       const secN = Object.keys(S.secret || {}).filter((k) => S.secret[k]).length;
@@ -417,6 +426,7 @@ const UI = (() => {
       return h;
     }
     if (S.phase === 'HS') return h + `<div class="card"><div class="empty">아직 학생이라 모아둔 돈이 없어요.<br>계약금과 연봉으로 집과 차를 살 수 있어요.</div></div>`;
+    if (view.life === 'spend') return h + spendView();
     const tab = view.asset;
     const items = tab === 'house' ? HOUSES : CARS;
     h += `<div class="card"><div class="kv"><span>보유 자산</span><b>${Game.won(S.money)}</b></div>${S.phase === 'MLB' ? `<div class="kv"><span>달러 환산</span><b>${Game.usd(S.money / USD)}</b></div>` : ''}</div>
@@ -429,10 +439,24 @@ const UI = (() => {
         if (cur) act = `<span class="tag team">${tab === 'house' ? '거주 중' : '타는 중'}</span>${it.id !== 'home' ? `<button class="mini sub" data-sell="${it.id}">팔기</button>` : ''}`;
         else if (own) act = `<button class="mini" data-buy="${it.id}">${tab === 'house' ? '이사' : '타기'}</button>${it.id !== 'home' ? `<button class="mini sub" data-sell="${it.id}">팔기</button>` : ''}`;
         else act = `<button class="mini" data-buy="${it.id}" ${S.money < it.price || (it.mlbOnly && S.phase !== 'MLB') ? 'disabled' : ''}>구매</button>`;
-        return `<div class="shop-row"><div class="ic">${tab === 'house' ? IC.house : IC.car}</div><div class="tx"><b>${it.name}</b><small>${it.desc}</small><small>${eff}</small><span class="price">${it.price ? Game.won(it.price) : '무료'}</span></div><div class="act">${act}</div></div>`;
+        return `<div class="shop-row asset-row">${assetPhoto(it.id, it.name)}<div class="ic">${tab === 'house' ? IC.house : IC.car}</div><div class="tx"><b>${it.name}</b><small>${it.desc}</small><small>${eff}</small><span class="price">${it.price ? Game.won(it.price) : '무료'}</span></div><div class="act">${act}</div></div>`;
       }).join('')}</div>
       <p class="hint">매달 생활비와 유지비가 나가요. 집은 90%, 차는 60% 가격에 팔 수 있어요.</p>`;
     return h;
+  }
+
+  function spendView() {
+    const S = G();
+    const I = Game.spendInfo();
+    const row = (ic, name, desc, price, act, imageId) => `<div class="shop-row ${imageId ? 'asset-row' : ''}">${imageId ? assetPhoto(imageId, name) : ''}<div class="ic">${ic}</div><div class="tx"><b>${name}</b><small>${desc}</small><span class="price">${price}</span></div><div class="act">${act}</div></div>`;
+    return `<div class="card"><div class="kv"><span>보유 자산</span><b>${Game.won(S.money)}</b></div>${I.fee ? `<div class="kv"><span>스태프 연봉 합계</span><b>연 ${Game.won(I.fee)}</b></div>` : ''}${I.donated ? `<div class="kv"><span>누적 기부</span><b>${Game.won(I.donated)}</b></div>` : ''}</div>
+      <div class="card"><div class="card-t"><h3>전담 스태프</h3><small>매달 급여가 나가요</small></div>
+        ${I.pro ? I.staff.map((x) => row(IC.player, x.name, x.desc, `연 ${Game.won(x.fee)}`, x.on ? `<span class="tag team">고용 중</span><button class="mini sub" data-staff="${x.id}">해고</button>` : `<button class="mini" data-staff="${x.id}" ${S.money < x.fee / 12 ? 'disabled' : ''}>고용</button>`)).join('') : '<div class="empty">프로 구단 소속일 때 고용할 수 있어요.</div>'}</div>
+      <div class="card"><div class="card-t"><h3>개인 시설</h3><small>한 번 지으면 평생</small></div>
+        ${I.fac.map((x) => row(IC.house, x.name, x.desc, Game.won(x.price), x.own ? '<span class="tag team">보유</span>' : `<button class="mini" data-fac="${x.id}" ${S.money < x.price ? 'disabled' : ''}>짓기</button>`, x.id)).join('')}</div>
+      <div class="card"><div class="card-t"><h3>기부 · 효도</h3><small>올해 기부 ${Game.won(I.donYear)}</small></div>
+        ${I.give.map((x) => row(IC.heart || IC.star, x.name, x.desc, Game.won(x.cost), x.done ? `<span class="tag">${x.once ? '완료' : '올해 완료'}</span>` : `<button class="mini" data-give="${x.id}" ${S.money < x.cost ? 'disabled' : ''}>${x.donate ? '기부' : '하기'}</button>`, ['watch', 'parents'].includes(x.id) ? x.id : null)).join('')}
+        <p class="hint" style="margin-top:8px">한 해에 5억원 이상 기부하면 시즌이 끝난 뒤 ${S.phase === 'MLB' ? '로베르토 클레멘테상' : '사랑의 골든글러브'}을 받아요.</p></div>`;
   }
 
   // ---------- 기록 ----------
@@ -474,6 +498,9 @@ const UI = (() => {
     if ((b = t('[data-pmode]'))) { view.pitchMode = b.dataset.pmode; return render(); }
     if ((b = t('[data-life]'))) { view.life = b.dataset.life; return render(); }
     if ((b = t('[data-asset]'))) { view.asset = b.dataset.asset; return render(); }
+    if ((b = t('[data-staff]'))) { const m = Game.toggleStaff(b.dataset.staff); if (m) toast(m); return render(); }
+    if ((b = t('[data-fac]'))) { const id = b.dataset.fac; const x = FACILITIES.find((q) => q.id === id); return sheet({ title: `${x.name} 짓기`, body: `${assetPhoto(x.id, x.name)}<p>${Game.won(x.price)}을 들여 지을까요?</p><p class="hint">${x.desc}</p>`, row: true, buttons: [{ label: '취소', cls: 'sub' }, { label: '짓기', onClick: () => { const m = Game.buyFacility(id); if (m) toast(m); render(); } }] }); }
+    if ((b = t('[data-give]'))) { const id = b.dataset.give; const x = GIVING.find((q) => q.id === id); return sheet({ title: x.name, body: `<p>${Game.won(x.cost)}을 쓸까요?</p><p class="hint">${x.desc}</p>`, row: true, buttons: [{ label: '취소', cls: 'sub' }, { label: x.donate ? '기부하기' : '하기', onClick: () => { const m = Game.doGive(id); if (m) sheet({ title: '고마워요', body: `<p class="pre">${esc(m)}</p>`, buttons: [{ label: '확인', onClick: render }] }); } }] }); }
     if ((b = t('[data-hero]'))) return heroDetail(b.dataset.hero);
     if ((b = t('[data-buy]')) && !b.disabled) return buy(b.dataset.buy);
     if ((b = t('[data-sell]'))) return sell(b.dataset.sell);
@@ -950,7 +977,7 @@ const UI = (() => {
     const own = tab === 'house' ? S.houses.includes(id) : S.cars.includes(id);
     const go = () => { const r = tab === 'house' ? Game.buyHouse(id) : Game.buyCar(id); toast(r.msg); render(); };
     if (own) return go();
-    sheet({ title: `${it.name} 구매`, body: `<p>${Game.won(it.price)}을 쓸까요? 남는 돈은 ${Game.won(S.money - it.price)}이에요.</p>`, row: true, buttons: [{ label: '취소', cls: 'sub' }, { label: '구매', onClick: go }] });
+    sheet({ title: `${it.name} 구매`, body: `${assetPhoto(it.id, it.name)}<p>${Game.won(it.price)}을 쓸까요? 남는 돈은 ${Game.won(S.money - it.price)}이에요.</p>`, row: true, buttons: [{ label: '취소', cls: 'sub' }, { label: '구매', onClick: go }] });
   }
   function sell(id) {
     const tab = view.asset;
@@ -1140,7 +1167,7 @@ const UI = (() => {
         <div class="field"><label>투타</label><div class="seg" id="cr-hand"><button data-v="RR" class="on">우투우타</button><button data-v="RL">우투좌타</button><button data-v="LL">좌투좌타</button><button data-v="RS">우투양타</button></div></div>
         <div class="field"><label for="cr-school">고등학교</label><select id="cr-school">${SCHOOLS.map((sc, i) => `<option value="${i}">${sc.name} (${sc.region}) 전력 ${'★'.repeat(Math.max(1, Math.round((sc.str - 58) / 4)))}</option>`).join('')}</select></div>
       </div>
-      <div class="card"><div class="card-t"><h3>타고난 재능</h3><button class="mini sub" id="cr-roll">다시 뽑기</button></div><div id="cr-talent"></div></div>
+      <div class="card"><div class="card-t"><h3>타고난 재능</h3><button class="mini sub" id="cr-roll">다시 뽑기 (5)</button></div><div id="cr-talent"></div></div>
       <button class="btn full" id="cr-go">야구부 입부하기</button>
       <button class="btn full sub" id="cr-back">뒤로</button>`;
     const draw = () => {
@@ -1157,7 +1184,8 @@ const UI = (() => {
     seg('#cr-pos', 'pos'); seg('#cr-hand', 'hand');
     $('#cr-fpos', s).onclick = (e) => { const b = e.target.closest('button'); if (!b) return; $$('#cr-fpos button', s).forEach((x) => x.classList.toggle('on', x === b)); st.fpos = b.dataset.v; draw(); };
     $('#cr-school', s).onchange = (e) => (st.school = +e.target.value);
-    $('#cr-roll', s).onclick = () => { st.talent = Game.rollTalent(); draw(); };
+    let rolls = 5;
+    $('#cr-roll', s).onclick = (e) => { if (rolls <= 0) return; rolls--; st.talent = Game.rollTalent(); draw(); e.currentTarget.textContent = rolls ? `다시 뽑기 (${rolls})` : '기회 소진'; e.currentTarget.disabled = !rolls; };
     $('#cr-back', s).onclick = intro;
     $('#cr-go', s).onclick = () => {
       const name = $('#cr-name', s).value.trim();
@@ -1177,7 +1205,7 @@ const UI = (() => {
     const h = S.spouse ? HEROINES.find((x) => x.id === S.spouse) : null;
     const s = $('#screen');
     s.className = 'screen bare'; s.onclick = null;
-    s.innerHTML = `<div class="hdr"><div><h1>${esc(S.name)}의 야구 인생</h1><div class="date">${S.age}세 은퇴 · ${Game.dateStr()}</div></div></div>
+    s.innerHTML = `<div class="hdr"><div><div class="avatar">${photo('player')}</div><h1>${esc(S.name)}의 야구 인생</h1><div class="date">${S.age}세 은퇴 · ${Game.dateStr()}</div></div></div>
       ${S.hof ? '<div><span class="hof">명예의 전당 헌액</span></div>' : ''}
       <div class="card"><div class="card-t"><h3>프로 통산</h3><small>${t.seasons}시즌</small></div><p class="pre" style="margin:0">${Game.seasonSummary(t)}</p><div class="kv" style="margin-top:6px"><span>통산 WAR</span><b>${t.war}</b></div></div>
       <div class="card"><div class="card-t"><h3>영광의 순간</h3></div>${S.trophies.length || S.awards.length ? `<div class="list">${[...S.trophies, ...S.awards].map((x) => `<div class="li"><div class="tx"><b style="font-weight:500">${esc(x)}</b></div></div>`).join('')}</div>` : '<p class="muted">기록보다 기억에 남는 선수였어요.</p>'}</div>
