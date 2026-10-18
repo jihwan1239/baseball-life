@@ -1256,7 +1256,9 @@ const Game = (() => {
     // 다음 주로
     W.done = true;
     S.stats.weeks++;
+    const pend0 = S.pending.length;
     advanceWeek(rep);
+    try { rep.news = makeNews(rep, S.pending.slice(pend0)); } catch (e) { rep.news = []; }
     if (chance(0.2)) randomEvent();
     else maybeChoice({ perf: rep.week ? perfScore(rep.week) : 0, tourn: W.games && W.games.some((g) => g.kind === 'tourn') });
     S.wk = null;
@@ -1325,6 +1327,87 @@ const Game = (() => {
       }
     }));
   }
+  // ---------- 주간 뉴스 ----------
+  const MEDIA = ['야구일보', '스포츠투데이', '베이스볼 위클리', '데일리 다이아몬드', '그라운드 뉴스'];
+  const MEDIA_US = ['MLB 인사이드', '빅리그 데일리', '다이아몬드 타임스'];
+  function leagueStar(type) {
+    // 실제 선수 명단이 있으면 그 이름을, 없으면 가상 이름을 쓴다
+    const kbo = S.phase !== 'MLB';
+    const ids = (kbo ? KBO_TEAMS : MLB_TEAMS).map((t) => t.id).filter((id) => id !== S.team);
+    const id = pick(ids);
+    const nm = rosterName(id, type, ri(0, 3)) || (kbo ? krName() : enName());
+    return { nm, team: teamInfo(id).short || teamInfo(id).name };
+  }
+  function makeNews(rep, pend) {
+    if (S.phase === 'RETIRED') return [];
+    const out = [];
+    const add = (pri, h, b) => out.push({ pri, h, b });
+    const nm = S.name;
+    const top = S.level === 'KBO1' || S.level === 'MLB';
+    const w = rep.week;
+    const t = S.st;
+    const am = amateur();
+    const where = am ? (S.phase === 'UNI' ? UNIVS[S.uni].name : amSchool().name) : teamInfo(S.team) ? (teamInfo(S.team).short || teamInfo(S.team).name) : '';
+    // 이번 주 내 활약
+    if (w && (w.PA || w.PG)) {
+      const prevHR = t.HR - (w.HR || 0);
+      let mile = false;
+      [10, 20, 30, 40, 50].forEach((m) => { if (prevHR < m && t.HR >= m && !am) { mile = true; add(9, `${nm}, 시즌 ${m}호 홈런 고지`, `이번 주에만 ${w.HR}홈런, ${w.RBI || 0}타점. ${m >= 30 ? '홈런왕 레이스에 불을 붙였다.' : '꾸준한 장타력이 빛났다.'}`); } });
+      if (w.HR >= 2 && !mile) add(8, `[${top || am ? '홈런포' : '퓨처스'}] ${where} ${nm}, 이번 주 ${w.HR}홈런 폭발`, `시즌 ${t.HR}호까지 늘렸다. ${w.RBI || 0}타점을 쓸어 담으며 팀 타선을 이끌었다.`);
+      if (w.AB >= 12 && w.H / w.AB >= 0.45) add(7, `'불방망이' ${nm}, 주간 타율 ${fmtAvg(w.H, w.AB)}`, `${w.AB}타수 ${w.H}안타. 상대 투수들이 고개를 저었다.`);
+      if (w.AB >= 14 && w.H <= 2) add(6, `${nm}, 길어지는 침묵… 주간 ${w.AB}타수 ${w.H}안타`, `타격 코치와 특타를 자청했다는 후문. 반등의 계기가 필요하다.`);
+      if (w.GS && w.OUTS >= 21 && w.ER === 0) add(8, `${nm}, ${Math.floor(w.OUTS / 3)}이닝 무실점 역투`, `${w.PSO}개의 삼진을 곁들였다. ${where} 마운드의 기둥으로 자리 잡았다.`);
+      if (w.PSO >= 10 && w.GS) add(7, `${nm}, 한 경기 탈삼진 쇼`, `이번 주 ${w.PSO}탈삼진. 직구와 변화구 조합에 타자들이 속수무책이었다.`);
+      if (w.ER >= 6 && w.OUTS < 15) add(5, `${nm} 난조… ${Math.floor(w.OUTS / 3)}이닝 ${w.ER}실점`, `제구가 흔들렸다. 다음 등판에서 반등할 수 있을까.`);
+      if (w.SV >= 2) add(6, `뒷문 단속 완벽, ${nm} 이번 주 ${w.SV}세이브`, `시즌 ${t.SV}세이브째. 9회가 편안해졌다.`);
+    }
+    // 순위
+    if (top && w && w.PA) {
+      const R = estRanks() || {};
+      if (R.avg === 1 && R.games >= 30) add(6, `${nm}, 타율 선두 질주 (${fmtAvg(t.H, t.AB)})`, '타격왕 경쟁에서 한발 앞서 나갔다.');
+      if (R.hr === 1 && R.games >= 30 && t.HR >= 10) add(6, `홈런 1위 ${nm}, 시즌 ${t.HR}홈런`, `2위 ${leagueStar('B').nm}와의 격차를 벌렸다.`);
+    }
+    // 팀
+    (rep.series || []).forEach((x) => {
+      if (x.tag === '스윕') add(5, `${where}, ${x.opp}에 3연전 싹쓸이`, '분위기가 최고조다. 더그아웃엔 웃음이 끊이지 않았다.');
+      if (x.tag === '스윕패') add(4, `${where}, ${x.opp}에 3연패 수모`, '연패 탈출이 시급하다.');
+    });
+    // 이번 주에 생긴 일 (승격, 강등, 트레이드, 부상 등)
+    pend.forEach((p) => {
+      const d = p.data || {};
+      if (p.type === 'msg' && /콜업|승격/.test((d.title || '') + (d.text || ''))) add(9, `${nm}, 1군 콜업… "기회 놓치지 않겠다"`, d.text ? d.text.split('\n').pop() : '');
+      if (p.type === 'msg' && d.title === '강등 통보') add(8, `${where} ${nm}, 엔트리 말소`, '부진 끝에 2군행. 재정비의 시간을 갖는다.');
+      if (p.type === 'trade') add(9, `[단독] ${nm} 트레이드 협상 급물살`, '복수 구단이 관심을 보이고 있다는 소식이다.');
+      if (p.type === 'traded') add(10, d.big ? `[속보] 블록버스터 트레이드! ${nm}, ${teamInfo(d.team).short || teamInfo(d.team).name}행 합의` : `[속보] ${nm}, ${teamInfo(d.team).short || teamInfo(d.team).name}행 트레이드 합의`, { rebuild: '리빌딩에 들어간 구단이 미래 자원을 받는 조건으로 트레이드를 결정했다.', contend: '우승을 노리는 상대 구단이 적극적으로 영입에 나섰다.', salary: '연봉 부담을 줄이려는 구단의 판단이라는 분석이다.', trust: '감독과의 불화설이 끝내 트레이드로 이어졌다.' }[d.reason] || '구단 간 합의가 끝났다.');
+      if (p.type === 'allstar') add(8, `${nm}, 올스타 선정`, '팬과 감독의 선택을 동시에 받았다.');
+      if (p.type === 'fa') add(10, `FA 대어 ${nm}, 시장에 나왔다`, '여러 구단이 영입전에 뛰어들 전망이다.');
+      if (p.type === 'posting') add(10, `${nm} 포스팅 응찰 마감, 빅리그 구단 관심`, '메이저리그 진출이 현실로 다가왔다.');
+      if (p.type === 'love' && d.ev === 'scandal') add(10, `[단독] ${nm} 심야 데이트 포착`, '소속사는 "사생활이라 확인이 어렵다"고 밝혔다.');
+    });
+    if (rep.events && rep.events.some((e) => /부상/.test(e))) add(9, `${where} 비상, ${nm} 부상으로 이탈`, `${rep.events.find((e) => /부상/.test(e))}. 팬들의 걱정이 크다.`);
+    // 연애 공개
+    if (S.partner && S.fame >= 50 && S.flags['pub_' + S.partner] && !S.flags.newsLove) { S.flags.newsLove = true; add(7, `${nm}, ${HEROINES.find((x) => x.id === S.partner).job}와 열애 인정`, '두 사람은 조용히 만남을 이어 왔다고.'); }
+    // 리그 소식 (채우기용)
+    if (!am && out.length < 2) {
+      const k = periodKey();
+      if (k === 'reg') {
+        const st = leagueStar(chance(0.5) ? 'B' : 'P');
+        const c0 = seasonCfg(); const f0 = clamp((S.week - c0.reg[0] + 1) / (c0.reg[1] - c0.reg[0] + 1), 0.1, 1);
+        add(2, pick([`${st.nm}(${st.team}), 시즌 ${Math.max(3, Math.round(ri(16, 40) * f0))}호 홈런`, `${st.nm}(${st.team}) ${ri(6, 9)}이닝 무실점… 에이스의 품격`, `${st.nm}(${st.team}), ${ri(10, 22)}경기 연속 안타`, `${st.nm}(${st.team}), 끝내기 안타로 팀 연패 탈출`]), '');
+        const sd = S.phase === 'KBO' ? standings() : null;
+        if (sd && sd[0].w + sd[0].l > 20) add(2, `${sd[0].name}, ${sd[0].w}승 ${sd[0].l}패로 선두 수성`, '');
+      } else if (k === 'off' || k === 'finish') {
+        const st = leagueStar('B');
+        add(2, pick([`스토브리그 대어 ${st.nm}, 원소속팀과 협상 난항`, `${st.team}, 외국인 투수 영입 임박`, `${st.nm}(${st.team}) 연봉 협상 완료, 대폭 인상`]), '');
+      } else if (k === 'camp') add(2, `${where} 스프링캠프, 주전 경쟁 본격화`, '');
+    }
+    out.sort((a, b) => b.pri - a.pri);
+    const media = S.phase === 'MLB' ? MEDIA_US : MEDIA;
+    const news = out.slice(0, 3).map((n) => ({ h: n.h, b: n.b, m: pick(media), d: dateStr() }));
+    S.news = news.concat(S.news || []).slice(0, 40);
+    return news;
+  }
+
   function standings() {
     ensureTeams();
     if (!S.teams || !S.teams.LG) { S.teams = {}; KBO_TEAMS.forEach((t) => (S.teams[t.id] = { str: rnd(54, 66), w: 0, l: 0, d: 0 })); }
@@ -2073,9 +2156,21 @@ const Game = (() => {
     }
     // 구단이 먼저 트레이드를 통보하는 경우
     const dl = TRADE_DL[S.phase];
-    if (w > c.reg[0] + 2 && w <= dl && S.trust < 28 && S.flags.tradedYear !== S.year && !S.flags['treq' + S.year] && chance(0.07)) {
-      S.flags.tradedYear = S.year;
-      S.pending.push({ type: 'traded', data: { team: tradeTargets(1)[0], ntc: !!(S.contract && S.contract.ntc) } });
+    if (w > c.reg[0] + 2 && w <= dl && S.flags.tradedYear !== S.year && !S.flags['treq' + S.year]) {
+      const ntc = !!(S.contract && S.contract.ntc);
+      const team = tradeTargets(1)[0];
+      if (S.trust < 28 && chance(0.07)) {
+        S.flags.tradedYear = S.year;
+        S.pending.push({ type: 'traded', data: { team, ntc, reason: 'trust' } });
+      } else {
+        // 신뢰와 상관없이, 팀 사정으로 아주 드물게 (대략 10시즌에 한 번)
+        const c0 = S.contract || {};
+        const star = (S.phase === 'KBO' ? c0.salary >= 1000000000 : c0.salary >= 15000000 * USD) || S.fame >= 75 || (S.phase === 'KBO' && c0.kind === 'annual' && S.service === 6) || (c0.years === 1);
+        if (chance(star ? 0.015 : 0.008)) {
+          S.flags.tradedYear = S.year;
+          S.pending.push({ type: 'traded', data: { team, ntc, reason: pick(['rebuild', 'contend', 'salary']), big: star } });
+        }
+      }
     }
   }
   function postingStart() {
@@ -2496,6 +2591,20 @@ const Game = (() => {
     if (c.e.id === 'public') S.flags['pub_' + c.id] = true;
     push({ ev: c.e.id, hid: c.id });
   }
+  // 트레이드로 팀이 바뀌면, 구단에 소속된 그녀와는 멀어진다
+  const TEAM_BOUND = { chaerin: 'KBO', ella: 'MLB', seoyun: 'ANY' };
+  function tradeApart() {
+    Object.keys(TEAM_BOUND).forEach((id) => {
+      const r = S.rel[id];
+      if (!r || r.ended) return;
+      const lg = TEAM_BOUND[id];
+      if (lg !== 'ANY' && lg !== S.phase) return;
+      const close = S.partner === id || S.spouse === id || (S.secret && S.secret[id]);
+      if (S.spouse === id) return;
+      if (close) S.pending.push({ type: 'love', data: { ev: 'apart', hid: id } });
+      else if (r.aff >= 20) { r.aff = clamp(r.aff - 12, 0, 100); }
+    });
+  }
   function loveInfo(d) {
     const h = HEROINES.find((x) => x.id === d.hid);
     const o = d.other ? HEROINES.find((x) => x.id === d.other) : null;
@@ -2503,6 +2612,7 @@ const Game = (() => {
     if (d.ev === 'caught') return { title: '들켰다', hid: d.hid, lines: [`어제 어디 있었어? 거짓말하지 마.`, `${o.name}. 맞지? 나 다 봤어.`, wife ? '우리 결혼까지 했잖아. 어떻게 나한테 이래?' : '어떻게 나한테 이럴 수 있어?'], opts: ['무릎 꿇고 싹싹 빈다', '끝까지 발뺌한다', `솔직하게, ${o.name}을(를) 택한다`] };
     if (d.ev === 'scandal') return { title: '열애설 기사', hid: d.hid, news: `[단독] ${S.name}, 심야 데이트 포착… 상대는 ${HEROINES.find((x) => x.id === d.hid).name} 아닌 다른 여성?`, lines: ['기사 봤어. 이거 뭐야?'], opts: ['사실무근이라고 해명한다', '노코멘트로 버틴다'] };
     if (d.ev === 'choose') { const m = HEROINES.find((x) => x.id === mainLove()); return { title: '선택해', hid: d.hid, lines: ['나 이제 숨어서 만나는 거 지쳤어.', `${m.name}이야, 나야? 오늘은 대답해 줘.`], opts: [`너를 택할게 (${m.name}와 정리)`, '조금만 더 기다려줘', '우리 여기서 그만하자'] }; }
+    if (d.ev === 'apart') { const h2 = HEROINES.find((x) => x.id === d.hid); return { title: '다른 팀', hid: d.hid, lines: ['트레이드 기사 봤어.', `이제 우리 다른 팀이네. ${h2.job}인 나는… 어떻게 해야 해?`], opts: ['장거리라도 계속 만나자', '우리 팀으로 와 줄 수 있어?', '여기서 정리하자'] }; }
     if (d.ev === 'free') return { title: '이제 숨기지 않아도 돼', hid: d.hid, lines: ['소식 들었어.', '이제 우리… 숨어서 안 만나도 되는 거지?'], opts: ['응, 이제 정식으로 만나자', '당분간은 혼자 있고 싶어'] };
     const e = LOVE_EVENTS.find((x) => x.id === d.ev);
     return { title: e.title, hid: d.hid, lines: e.lines, opts: e.opts.map((x) => x.label) };
@@ -2535,6 +2645,17 @@ const Game = (() => {
       if (choice === 0) { out.push(...endMain('다른 사람을 택함')); promoteLove(d.hid); msg = `"정말이지? 이제 손 잡고 걸어도 되는 거지?" ${h.name}이(가) 울면서 웃었다.`; }
       else if (choice === 1) { aff(d.hid, -8); S.sus = clamp(S.sus + 8, 0, 100); msg = '"맨날 기다리래." 그녀가 한숨을 쉬었다.'; if (chance(0.25)) { S.sus = clamp(S.sus + 40, 0, 100); msg += '\n\n며칠 뒤, 모르는 번호로 연인에게 문자가 갔다는 걸 알게 됐다.'; } }
       else { delete S.secret[d.hid]; r.aff = Math.min(r.aff, 30); S.mental = clamp(S.mental - 6, 0, 100); out.push('멘탈 -6'); msg = '"그래, 알았어. 잘 지내." 짧은 대답이 오히려 오래 남았다.'; }
+    } else if (d.ev === 'apart') {
+      if (choice === 0) { aff(d.hid, -5); S.mental = clamp(S.mental - 3, 0, 100); msg = '"응. 주말마다 내가 갈게. 아니 네가 와." 통화를 끊고 한참을 휴대폰만 봤다.'; }
+      else if (choice === 1) {
+        if (r.aff >= 80 && chance(0.6)) { aff(d.hid, 8); msg = '며칠 뒤 그녀에게서 문자가 왔다. "나 이직 확정! 이제 매일 볼 수 있어."'; }
+        else { aff(d.hid, -10); msg = '"그건… 나도 여기서 쌓아온 게 있잖아." 그녀가 조용히 고개를 저었다.'; }
+      } else {
+        if (mainLove() === d.hid) out.push(...endMain('트레이드로 이별'));
+        if (S.secret) delete S.secret[d.hid];
+        r.aff = Math.min(r.aff, 20); S.mental = clamp(S.mental - 8, 0, 100); out.push('멘탈 -8');
+        msg = '"그래, 그게 맞는 것 같아. 새 팀에서 잘해." 마지막 인사는 생각보다 담담했다.';
+      }
     } else if (d.ev === 'free') {
       if (choice === 0) { promoteLove(d.hid); msg = `${h.name}와 정식 연인이 됐다.`; out.push('연인'); }
       else { delete S.secret[d.hid]; aff(d.hid, -10); msg = '"그래, 기다릴게." 그녀가 조용히 전화를 끊었다.'; }
@@ -2762,11 +2883,13 @@ const Game = (() => {
       case 'trade':
         if (choice === 'stay' || choice == null) { S.trust = clamp(S.trust + 6, 0, 100); return { title: '트레이드 요청 철회', text: '마지막 순간에 마음을 바꿨다. 감독님이 어깨를 툭 쳤다. (감독 신뢰 +6)' }; }
         doTrade(d.offers[choice].team);
+        tradeApart();
         return { title: '트레이드 확정!', text: `${teamInfo(S.team).name} 유니폼을 입게 됐다.\n새 팀에서 다시 증명하자.` };
       case 'traded':
         if (choice === 'refuse') { S.trust = clamp(S.trust - 5, 0, 100); return { title: '거부권 행사', text: '계약서의 트레이드 거부권을 행사했다. 구단은 트레이드를 없던 일로 했다.' }; }
         doTrade(d.team);
-        return { title: '트레이드 통보', text: `${teamInfo(S.team).name}(으)로 트레이드됐다. 짐을 싸야 한다.` };
+        tradeApart();
+        return { title: d.big ? '블록버스터 트레이드' : '트레이드 통보', text: `${teamInfo(S.team).name}(으)로 트레이드됐다. 짐을 싸야 한다.${d.big ? '\n이적 첫날부터 기자들이 숙소 앞에 몰려들었다.' : ''}` };
       case 'optout':
         if (choice === 'out') { S.contract.optUsed = true; S.contract.years = 0; S.pending.unshift({ type: 'fa', data: { offers: faOffers() } }); return { title: '옵트아웃', text: `남은 ${d.left}년 계약을 포기하고 FA 시장에 나간다.` }; }
         S.contract.optUsed = true;

@@ -55,6 +55,8 @@ const UI = (() => {
   function bar(v, max = 100, cls = '') { return `<div class="bar ${cls}"><i style="width:${Math.max(0, Math.min(100, v / max * 100))}%"></i></div>`; }
   function gradeTag(v) { const g = Game.grade(v); return `<span class="gr gr-${g}">${g}</span>`; }
   function starStr(n) { return '★'.repeat(n) + '☆'.repeat(5 - n); }
+  // 공공장소 모드: 데이트/특급 데이트 사진 대신 일반 사진만
+  function publicMode() { try { return localStorage.getItem('baseballLife.public') === '1'; } catch (e) { return false; } }
   function assetPhoto(id, name) {
     const key = id === 'parents' ? 'apt' : id;
     return `<img class="asset-photo" src="images/assets/${key}.webp" alt="${esc(name)}" loading="lazy" decoding="async" onerror="this.remove()">`;
@@ -64,7 +66,8 @@ const UI = (() => {
   }
   function photo(id, night) {
     if (id === 'player') return `<img src="images/player/${playerStage(G()?.age || 16)}.webp" alt="${G()?.age || 16}세 야구 선수" decoding="async" onerror="this.remove()">`;
- return night ? `<img src="images/${id}_night.jpg" alt="" onerror="this.onerror=null;this.src='images/${id}.jpg'">` : `<img src="images/${id}.jpg" alt="" onerror="this.remove()">`; }
+ const sfx = publicMode() ? '' : night === 'date' ? '_date' : night ? '_night' : '';
+  return sfx ? `<img src="images/${id}${sfx}.jpg" alt="" onerror="this.onerror=null;this.src='images/${id}.jpg'">` : `<img src="images/${id}.jpg" alt="" onerror="this.remove()">`; }
   function toast(t) { const e = $('#toast'); e.textContent = t; e.className = 'on'; clearTimeout(e._t); e._t = setTimeout(() => (e.className = ''), 1800); }
 
   // ---------- 시트 ----------
@@ -204,6 +207,10 @@ const UI = (() => {
     return `<div class="card own-card" data-own="1"><div class="card-t"><h3>내 집 · 내 차</h3><small>${S.houses.length - 1 + S.cars.length ? `집 ${S.houses.length}채 · 차 ${S.cars.length}대` : '라이프 탭에서 살 수 있어요'}</small></div>
       <div class="own-grid"><div class="own-it">${assetPhoto(h.id, h.name)}<b>${h.name}</b></div><div class="own-it">${c ? assetPhoto(c.id, c.name) : '<div class="own-empty">차 없음</div>'}<b>${c ? c.name : '뚜벅이'}</b></div></div></div>`;
   }
+  function newsList(list) {
+    return `<div class="news">${list.map((n) => `<div class="news-it"><b>${esc(n.h)}</b>${n.b ? `<p>${esc(n.b)}</p>` : ''}<small>${esc(n.m)} · ${esc(n.d)}</small></div>`).join('')}</div>`;
+  }
+  function newsBlock(list, title) { return `<div class="news-box"><div class="news-t">📰 ${title}</div>${newsList(list)}</div>`; }
   function nextTitle() {
     const S = G();
     if (Game.amateur()) { const dy = (S.phase === 'HS' && S.grade === 3) || (S.phase === 'UNI' && (S.grade === 2 || S.grade === 4)); return dy && S.week < 34 ? '드래프트가 다가와요' : `${S.phase === 'UNI' ? '대학' : '고교'} 대회 일정`; }
@@ -481,6 +488,7 @@ const UI = (() => {
     const wk = (w) => `${Math.floor(w / 4) + 1}월 ${(w % 4) + 1}주`;
     return `${header('기록')}
       ${tot.seasons ? `<div class="card"><div class="card-t"><h3>프로 통산</h3><small>${tot.seasons}시즌</small></div><p class="pre" style="margin:0">${Game.seasonSummary(tot)}</p><div class="kv" style="margin-top:6px"><span>통산 WAR</span><b>${tot.war}</b></div></div>` : ''}
+      ${(S.news || []).length ? `<div class="card"><div class="card-t"><h3>뉴스</h3><small>최근 ${Math.min(10, S.news.length)}건</small></div>${newsList(S.news.slice(0, 10))}</div>` : ''}
       <div class="card"><div class="card-t"><h3>시즌별 기록</h3></div>${table || '<div class="empty">시즌이 끝나면 기록이 쌓여요.</div>'}</div>
       <div class="card"><div class="card-t"><h3>우승 · 수상</h3><small>${S.trophies.length + S.awards.length}개</small></div>
         ${S.trophies.length || S.awards.length ? `<div class="list">${S.trophies.map((t) => `<div class="li"><div class="ic team">${IC.record}</div><div class="tx"><b>${esc(t)}</b></div></div>`).join('')}${S.awards.map((t) => `<div class="li"><div class="ic">${IC.star}</div><div class="tx"><b>${esc(t)}</b></div></div>`).join('')}</div>` : '<div class="empty">아직 없어요.</div>'}</div>
@@ -600,8 +608,8 @@ const UI = (() => {
     if (rep.gains && rep.gains.length) parts.push(`<div class="chips" style="margin:8px 0">${rep.gains.map((g) => `<span class="chip">${esc(g)}</span>`).join('')}</div>`);
     if (rep.dateLine && rep.dateHid) {
       const h = HEROINES.find((x) => x.id === rep.dateHid);
-      if (rep.dateNarr) parts.push(rep.dateNight ? `<div class="night full"><div class="night-img">${photo(h.id, true)}</div><p>${esc(rep.dateLine)}</p></div>` : `<div class="night"><div class="night-ph">${photo(h.id)}</div><p>${esc(rep.dateLine)}</p></div>`);
-      else parts.push(`<div class="bubble"><div class="who">${h.name}</div>${esc(rep.dateLine)}</div>`);
+      if (rep.dateNarr) parts.push(`<div class="night full"><div class="night-img">${photo(h.id, rep.dateNight ? true : 'date')}</div><p>${esc(rep.dateLine)}</p></div>`);
+      else parts.push(`<div class="date-card"><div class="night-img">${photo(h.id, 'date')}</div><div class="bubble"><div class="who">${h.name}</div>${esc(rep.dateLine)}</div></div>`);
     }
     const anim = rep.anim;
     const showS = !auto && anim && anim.spray.length > 0;
@@ -623,6 +631,7 @@ const UI = (() => {
     } else if (rep.games.length) parts.push('<div class="weekline">이번 주는 경기에 나서지 못했어요.</div>');
     (rep.lines || []).forEach((l) => parts.push(`<p class="small muted">${esc(l)}</p>`));
     (rep.events || []).forEach((l) => parts.push(`<p style="color:var(--bad)">${esc(l)}</p>`));
+    if (rep.news && rep.news.length && !auto) parts.push(newsBlock(rep.news, '이번 주 뉴스'));
     if (!parts.length) parts.push('<p class="muted">조용한 한 주가 지나갔어요.</p>');
     if (rep.period && !auto) parts.unshift(`<span class="pd-pill sm" style="background:${pcol(rep.period.color)}">${rep.period.name}</span>`);
     sheet({ title: auto ? '자동 진행 결과' : `${rep.title} 결과`, body: parts.join(''), buttons: [{ label: '확인', onClick: () => { clearTimeout(rpTimer); render(); processPending(); } }], onRender: (b) => { if (replay) runReplay(b, rep); } });
@@ -835,7 +844,7 @@ const UI = (() => {
         sheet({ title: '트레이드 후보', body: '<p>구단이 트레이드 상대를 찾아왔어요. 어디로 갈까요?</p>', buttons: d.offers.map((o, i) => ({ label: `${Game.teamInfo(o.team).name}<small>${o.note}</small>`, cls: 'sub', onClick: () => done(i) })).concat([{ label: '요청 철회하고 남기', cls: 'sub', onClick: () => done('stay') }]) });
         break;
       case 'traded':
-        sheet({ title: '트레이드 통보', body: `<p>구단이 ${Game.teamInfo(d.team).name}와 트레이드에 합의했다고 알려왔어요.</p>${d.ntc ? '<p class="hint">계약서에 트레이드 거부권이 있어서 거절할 수 있어요.</p>' : ''}`, row: d.ntc, buttons: d.ntc ? [{ label: '거부권 행사', cls: 'sub', onClick: () => done('refuse') }, { label: '받아들인다', onClick: () => done('ok') }] : [{ label: '짐 싸기', onClick: () => done('ok') }] });
+        sheet({ title: d.big ? '블록버스터 트레이드' : '트레이드 통보', body: `<div class="draft" style="background:${Game.teamInfo(d.team).c1}"><small>${d.big ? '대형 트레이드' : '트레이드'}</small><b>${Game.teamInfo(d.team).name}</b></div><p>${{ rebuild: '리빌딩에 들어간 구단이 당신을 보내고 유망주를 받기로 했어요.', contend: '우승을 노리는 구단이 당신을 강하게 원했어요.', salary: '연봉 부담을 줄이려는 구단 사정으로 트레이드가 결정됐어요.', trust: '감독과의 관계가 끝내 트레이드로 이어졌어요.' }[d.reason] || ''} ${Game.teamInfo(d.team).name}와 합의가 끝났다고 알려왔어요.</p>${d.ntc ? '<p class="hint">계약서에 트레이드 거부권이 있어서 거절할 수 있어요.</p>' : ''}`, row: d.ntc, buttons: d.ntc ? [{ label: '거부권 행사', cls: 'sub', onClick: () => done('refuse') }, { label: '받아들인다', onClick: () => done('ok') }] : [{ label: '짐 싸기', onClick: () => done('ok') }] });
         break;
       case 'optout':
         sheet({ title: '옵트아웃 선택', body: `<p>계약서의 옵트아웃 조항을 쓸 수 있어요. 남은 계약은 ${d.left}년이에요. FA 시장에 다시 나갈까요?</p>`, row: true, buttons: [{ label: '남는다', cls: 'sub', onClick: () => done('stay') }, { label: '옵트아웃', onClick: () => done('out') }] });
@@ -913,10 +922,11 @@ const UI = (() => {
     let i = 0, gain = 0;
     const fx = {};
     const night = /특급|호텔|해외/.test(where);
-    const head = `<div class="chat-h"><div class="chat-av">${photo(h.id, night)}</div><div><b>${h.name}</b><small>${where}</small></div></div>`;
+    const dating = !night && !/연락|전화/.test(where);
+    const head = `<div class="chat-h"><div class="chat-av">${photo(h.id, night ? true : dating ? 'date' : false)}</div><div><b>${h.name}</b><small>${where}</small></div></div>`;
     const her = (t) => `<div class="cb her">${esc(t)}</div>`;
     const me = (t) => `<div class="cb me">${esc(t)}</div>`;
-    const draw = (extra) => `${head}${night ? `<div class="chat-big">${photo(h.id, true)}</div>` : ''}<div class="chat-log ${night ? 'short' : ''}">${log.join('')}${extra || ''}</div>`;
+    const draw = (extra) => `${head}${night || dating ? `<div class="chat-big">${photo(h.id, night ? true : 'date')}</div>` : ''}<div class="chat-log ${night || dating ? 'short' : ''}">${log.join('')}${extra || ''}</div>`;
     const scroll = (b) => { const l = $('.chat-log', b); if (l) l.scrollTop = l.scrollHeight; };
     const step = () => {
       const t = topics[i];
@@ -1007,13 +1017,13 @@ const UI = (() => {
     try { cur = localStorage.getItem('baseballLife.theme') || 'system'; } catch (e) { /* */ }
     sheet({
       title: '설정', dismiss: true,
-      body: `<div class="field"><label>화면 테마</label><div class="seg" id="th">${[['system', '시스템'], ['light', '라이트'], ['dark', '다크']].map(([k, n]) => `<button data-v="${k}" class="${cur === k ? 'on' : ''}">${n}</button>`).join('')}</div></div><p class="hint">게임은 매주 자동 저장돼요.</p><p class="hint">버전 2026.10.18 · 캠프 집중 훈련, 인연 끝내기 포함</p>`,
+      body: `<div class="field"><label>화면 테마</label><div class="seg" id="th">${[['system', '시스템'], ['light', '라이트'], ['dark', '다크']].map(([k, n]) => `<button data-v="${k}" class="${cur === k ? 'on' : ''}">${n}</button>`).join('')}</div></div><div class="field"><label>공공장소 모드</label><div class="seg" id="pubm"><button data-v="0" class="${publicMode() ? '' : 'on'}">끄기</button><button data-v="1" class="${publicMode() ? 'on' : ''}">켜기</button></div><p class="hint" style="margin:4px 0 0">켜면 데이트·특급 데이트 사진 대신 일반 사진만 나와요.</p></div><p class="hint">게임은 매주 자동 저장돼요.</p><p class="hint">버전 2026.10.18 · 캠프 집중 훈련, 인연 끝내기 포함</p>`,
       buttons: [
         { label: '실제 선수 명단', cls: 'sub', onClick: () => rosterSheet() },
         { label: '은퇴하기', cls: 'sub', onClick: () => sheet({ title: '정말 은퇴할까요?', body: '<p>커리어가 끝나고 엔딩으로 넘어가요.</p>', row: true, buttons: [{ label: '취소', cls: 'sub' }, { label: '은퇴', cls: 'danger', onClick: () => { Game.resolve({ type: 'forcedRetire', data: {} }); Game.save(); ending(); } }] }) },
         { label: '새로 시작하기', cls: 'sub', onClick: () => sheet({ title: '새로 시작할까요?', body: '<p>지금 저장된 선수는 지워져요.</p>', row: true, buttons: [{ label: '취소', cls: 'sub' }, { label: '새로 시작', cls: 'danger', onClick: () => { Game.wipe(); create(); } }] }) },
         { label: '닫기' }],
-      onRender: (b) => { $('#th', b).onclick = (e) => { const x = e.target.closest('button'); if (!x) return; try { if (x.dataset.v === 'system') localStorage.removeItem('baseballLife.theme'); else localStorage.setItem('baseballLife.theme', x.dataset.v); } catch (er) { /* */ } $$('#th button', b).forEach((q) => q.classList.toggle('on', q === x)); applyTeam(); }; },
+      onRender: (b) => { $('#pubm', b).onclick = (e) => { const x = e.target.closest('button'); if (!x) return; try { localStorage.setItem('baseballLife.public', x.dataset.v); } catch (er) { /* */ } $$('#pubm button', b).forEach((q) => q.classList.toggle('on', q === x)); toast(x.dataset.v === '1' ? '공공장소 모드를 켰어요' : '공공장소 모드를 껐어요'); render(); }; $('#th', b).onclick = (e) => { const x = e.target.closest('button'); if (!x) return; try { if (x.dataset.v === 'system') localStorage.removeItem('baseballLife.theme'); else localStorage.setItem('baseballLife.theme', x.dataset.v); } catch (er) { /* */ } $$('#th button', b).forEach((q) => q.classList.toggle('on', q === x)); applyTeam(); }; },
     });
   }
 
