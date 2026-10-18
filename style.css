@@ -339,3 +339,15 @@ input:focus, select:focus { border-color: var(--blue); }
 .hero.ended .tag { background: #555; color: #fff; }
 .ended-ph img { filter: grayscale(1) brightness(0.8); }
 .li.end-li b { color: var(--bad); }
+
+/* Photographic assets: wrap details below a full-width image on mobile. */
+.shop-row.asset-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 18px 0; }
+.asset-photo { display: block; width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 14px; background: var(--card2); }
+.asset-row > .asset-photo { grid-column: 1 / -1; }
+.asset-row > .ic { display: none; }
+.asset-row > .tx { grid-column: 1; }
+.asset-row > .act { grid-column: 2; align-self: center; }
+.asset-row .tx b { font-size: 16px; }
+.asset-row .tx small { margin-top: 3px; }
+.asset-row .price { display: block; margin-top: 8px; }
+.profile .avatar { width: 100px; height: 100px; }
