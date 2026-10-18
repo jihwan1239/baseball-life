@@ -1474,6 +1474,7 @@ const Game = (() => {
     if (S.phase === 'HS') {
       if (S.grade < 3) { S.grade++; addLog(`${S.grade}학년 진급!`); return; }
       if (h.path === 'UNI') return startUni(h.uniPick);
+      if (h.path === 'SHINGO') return signShingo(h.shingoTeam, true);
       return startIndy(h.indyPick);
     }
     if (S.grade < 4) {
@@ -1481,6 +1482,7 @@ const Game = (() => {
       addLog(`대학 ${S.grade}학년 진급!`);
       return;
     }
+    if (h.path === 'SHINGO') return signShingo(h.shingoTeam, true);
     return startIndy(h.indyPick);
   }
   function freshAmateur(keep) {
@@ -1505,8 +1507,8 @@ const Game = (() => {
     addLog(`${teamInfo(S.team).name} 입단 (독립리그)`);
     S.pending.push({ type: 'msg', data: { title: '독립리그 입단', icon: 'star', text: `${teamInfo(S.team).name}에서 다시 시작한다.\n연봉은 없지만, 성적을 내면 KBO 구단이 신고선수(육성선수)로 데려갈 수 있다.` } });
   }
-  function signShingo(teamId) {
-    if (S.st.G || S.st.PG) S.career.push({ year: S.year, team: teamInfo(S.team).name, level: '독립리그', st: Object.assign({}, S.st) });
+  function signShingo(teamId, fromSchool) {
+    if (S.phase === 'INDY' && (S.st.G || S.st.PG)) S.career.push({ year: S.year, team: teamInfo(S.team).name, level: '독립리그', st: Object.assign({}, S.st) });
     newChart();
     S.phase = 'KBO'; S.team = teamId; S.level = 'KBO2'; S.trust = 45;
     S.contract = { kind: 'annual', lg: 'KBO', salary: 30000000 };
@@ -1515,6 +1517,7 @@ const Game = (() => {
     S.flags.proYear = S.week >= 36 ? S.year + 1 : S.year; S.flags.shingo = true; S.lvlSince = S.stats.weeks;
     S.fame = clamp(S.fame + 4, 0, 100); S.mental = clamp(S.mental + 15, 0, 100);
     addLog(`${teamInfo(teamId).name} 신고선수로 입단!`);
+    if (fromSchool) S.pending.push({ type: 'msg', data: { title: '육성선수 입단', icon: 'star', text: `${teamInfo(teamId).name} 육성선수 ${S.name}.\n연봉 3,000만원, 퓨처스(2군)에서 시작한다. 잘하면 1군에도 오를 수 있다.\n\n이제 성인이 되어 연애와 자산 메뉴가 열렸습니다.` } });
   }
   function graduate() {
     newChart();
@@ -1563,7 +1566,7 @@ const Game = (() => {
     if (w > c.reg[0] && w <= c.reg[1] && w % 2 === 0) levelMoves();
     if (S.phase === 'MLB' && w === c.reg[1] - 4 && S.level === 'AAA' && ovr() >= 60) promote('MLB', '9월 확장 로스터 콜업!');
     // 올스타
-    if (w === c.allstar && (S.level === 'KBO1' || S.level === 'MLB') && (perfAvg() > 0.8 || S.fame > 45)) {
+    if (w === c.allstar && (S.level === 'KBO1' || S.level === 'MLB') && allstarPick()) {
       S.pending.push({ type: 'allstar', data: {} });
     }
     if (w === c.post[0] && !S.flags['post' + S.year]) { S.flags['post' + S.year] = true; setupPost(); }
@@ -1589,7 +1592,10 @@ const Game = (() => {
     const o = ovr(), p = perfAvg();
     const inSeason = w > c.reg[0] && w <= c.reg[1];
     const recentTry = S.stats.weeks - (S.flags.tryWk || -99) < 8;
-    if (!recentTry && ((inSeason && w % 2 === 0 && S.recent.length >= 3 && ((o >= 52 && p > 1.2) || o >= 56) && chance(0.45)) || (w === 40 && o >= 52))) {
+    // 육성선수는 프로의 가장 아래 단계라, 독립리그에서 꾸준히 잘하면 기회가 온다
+    const midSeason = inSeason && w % 2 === 0 && S.recent.length >= 3 && ((o >= 46 && p > 1.0) || o >= 50) && chance(0.4);
+    const openTry = w === 40 && o >= 44 && chance(clamp((o - 43) / 8 + p * 0.05, 0.1, 0.9));
+    if (!recentTry && (midSeason || openTry)) {
       S.flags.tryWk = S.stats.weeks;
       S.pending.push({ type: 'tryout', data: { team: pick(KBO_TEAMS).id } });
     }
@@ -1707,6 +1713,16 @@ const Game = (() => {
     S.mental = clamp(S.mental - 8, 0, 100);
     S.recent = [];
   }
+  // 올스타: 전반기 순위가 리그 최상위권이거나, 팬 투표로 뽑힐 만큼 인기가 아주 높을 때
+  function allstarPick() {
+    const R = estRanks() || {};
+    const kbo = S.phase === 'KBO';
+    const top = (r, n) => r && r <= n;
+    const bat = isBatter() && (top(R.avg, kbo ? 8 : 10) || top(R.hr, kbo ? 5 : 8));
+    const pit = isPitcher() && (top(R.era, kbo ? 4 : 6) || top(R.w, kbo ? 3 : 5) || top(R.sv, kbo ? 3 : 5) || top(R.so, kbo ? 3 : 5));
+    const fans = S.fame >= 85 && perfAvg() > 0.5;
+    return bat || pit || fans;
+  }
   function levelMoves() {
     if (S.phase === 'INDY') return;
     const o = ovr() + trustAdj() * 0.8, p = perfAvg();
@@ -1714,14 +1730,19 @@ const Game = (() => {
     if (S.phase === 'KBO') {
       const rk = isRookie();
       if (S.level === 'KBO2' && !(rk && S.stats.weeks - (S.lvlSince || 0) < 8) && (o >= (rk ? 60 : 57) || (o >= (rk ? 56 : 52) && p > (rk ? 1.5 : 1.2) && S.recent.length >= 3))) promote('KBO1', '퓨처스에서의 활약으로 1군 콜업!');
-      else if (S.level === 'KBO1' && o < 53 && p < -1 && S.recent.length >= 3) demote('KBO2', '부진으로 1군 엔트리에서 말소됐다.');
+      else if (S.level === 'KBO1' && S.recent.length >= 4) {
+        // 부진하면 주전도 2군에 다녀온다 (컨디션 조정 차 말소)
+        const r4 = S.recent.slice(-4), p4 = r4.reduce((x, y) => x + y, 0) / r4.length;
+        if (p < -1 && o < 58) demote('KBO2', '부진으로 1군 엔트리에서 말소됐다.');
+        else if ((p4 < -1.2 && S.trust < 45 && chance(0.5)) || (p4 < -1.6 && chance(0.35))) demote('KBO2', '긴 부진에 컨디션 조정 차 1군 엔트리에서 말소됐다. 2군에서 감을 찾으면 열흘 뒤 다시 올라올 수 있다.');
+      }
     } else {
       const i = MILB_LADDER.indexOf(S.level);
       if (S.level !== 'MLB') {
         if (S.stats.weeks - (S.lvlSince || 0) < 8) return;
         const thr = MILB_UP[S.level];
         if ((o >= thr && p > -0.5) || (o >= thr - 3 && p > 1.5 && S.recent.length >= 3)) promote(MILB_LADDER[i + 1], S.level === 'AAA' ? '메이저리그 콜업! 꿈의 무대로!' : '');
-      } else if (o < 59 && p < -1 && S.recent.length >= 3 && !(S.contract && S.contract.kind === 'mlb')) demote('AAA', '트리플A로 옵션 이동됐다.');
+      } else if (S.recent.length >= 4 && !(S.contract && S.contract.kind === 'mlb') && ((o < 63 && p < -1) || (p < -1.6 && chance(0.4)))) demote('AAA', '부진으로 트리플A로 옵션 이동됐다.');
     }
   }
 
@@ -1943,9 +1964,9 @@ const Game = (() => {
       const sd = 0.8 + 2.5 / Math.sqrt(Math.max(10, ip));
       out.eraQ = ip >= tg;
       out.era = out.eraQ ? rk((m - era) / sd, np) : null;
-      out.w = t.W > 0 ? rk((t.W - 7 * f * (1 + V.w)) / (3.6 * f + 0.8), kbo ? 45 : 100) : null;
+      out.w = t.W > 0 ? rk((t.W - 10 * f * (1 + V.w)) / (3.8 * f + 0.8), kbo ? 45 : 100) : null;
       out.sv = t.SV > 0 ? rk((t.SV - 6 * f * (1 + V.sv)) / (9 * f + 0.8), kbo ? 30 : 60) : null;
-      out.so = t.PSO > 0 ? rk((t.PSO - (kbo ? 100 : 120) * f * (1 + V.so)) / ((kbo ? 45 : 55) * f + 3), kbo ? 45 : 100) : null;
+      out.so = t.PSO > 0 ? rk((t.PSO - (kbo ? 115 : 135) * f * (1 + V.so)) / ((kbo ? 45 : 55) * f + 3), kbo ? 45 : 100) : null;
     }
     return out;
   }
@@ -2194,7 +2215,15 @@ const Game = (() => {
     let typed = false;
     top.concat(rest).forEach((t) => { if (out.length >= n) return; if (t.type) { if (typed) return; typed = true; } out.push(t); });
     S.flags.talkSeen[id] = seen.concat(out.map((t) => t.i)).slice(-12);
-    return out.map((t) => ({ q: t.q, a: t.a, type: t.type || null }));
+    const res = out.map((t) => ({ q: t.q, a: t.a, type: t.type || null }));
+    // 집이나 차를 산 지 얼마 안 됐으면 그 얘기부터
+    const no = S.flags.newOwn;
+    if (no && S.stats.weeks - no.wk <= 8 && !no.seen[id] && relStage(S.rel[id].aff, id) >= 2) {
+      no.seen[id] = true;
+      res.unshift(OWN_TALK[no.k][casual ? 'c' : 'p']);
+      res.length = Math.min(res.length, n);
+    }
+    return res;
   }
   function talkFinish(id, gain, mode, fx) {
     const extra = fx ? applyFx(fx) : [];
@@ -2577,6 +2606,7 @@ const Game = (() => {
     if (S.money < h.price) return { ok: false, msg: '돈이 부족합니다.' };
     S.money -= h.price; S.houses.push(id); S.house = id;
     S.mental = clamp(S.mental + 10, 0, 100);
+    S.flags.newOwn = { k: 'house', wk: S.stats.weeks, seen: {} };
     addLog(`${h.name} 구매!`);
     save();
     return { ok: true, msg: `${h.name} 구매 완료! 새 집으로 이사했다.` };
@@ -2596,6 +2626,7 @@ const Game = (() => {
     if (S.money < c.price) return { ok: false, msg: '돈이 부족합니다.' };
     S.money -= c.price; S.cars.push(id); S.car = id;
     S.mental = clamp(S.mental + 6, 0, 100);
+    S.flags.newOwn = { k: 'car', wk: S.stats.weeks, seen: {} };
     addLog(`${c.name} 구매!`);
     save();
     return { ok: true, msg: `${c.name} 구매 완료!` };
@@ -2679,7 +2710,10 @@ const Game = (() => {
           S.mental = clamp(S.mental - 12, 0, 100);
           addLog('드래프트에서 이름이 불리지 않았다...');
           const stage = S.phase === 'HS' ? 'HS' : S.grade === 2 ? 'UNI2' : 'UNI4';
-          S.pending.unshift({ type: 'undrafted', data: { stage, uni: stage === 'HS' ? uniOffer() : null, indy: pick(INDY_TEAMS).id } });
+          // 지명은 못 받았어도 육성선수로 데려가려는 구단이 있을 수 있다
+          const o = ovr();
+          const shingo = stage !== 'UNI2' && o >= 42 && chance(clamp(0.25 + (o - 42) * 0.06 + (S.hs.scoutK || 0) * 0.004, 0.25, 0.9)) ? pick(KBO_TEAMS).id : null;
+          S.pending.unshift({ type: 'undrafted', data: { stage, uni: stage === 'HS' ? uniOffer() : null, indy: pick(INDY_TEAMS).id, shingo } });
         } else {
           S.hs.drafted = true;
           S.team = d.team; S.money += d.bonus; S.contract = { kind: 'annual', lg: 'KBO', salary: 30000000 };
@@ -2692,6 +2726,7 @@ const Game = (() => {
         else { S.hs.path = 'STAY'; addLog('4학년까지 다니기로 했다.'); }
         return null;
       case 'undrafted':
+        if (choice === 'SHINGO') { S.hs.path = 'SHINGO'; S.hs.shingoTeam = d.shingo; addLog(`${teamInfo(d.shingo).name}와 육성선수 계약에 합의했다.`); return { title: '육성선수 계약', text: `${teamInfo(d.shingo).name}에서 육성선수로 데려가겠다고 했다.\n졸업하면 퓨처스(2군)에서 프로 생활을 시작한다. 정식 선수 등록은 실력으로 따내자.` }; }
         if (choice === 'UNI') { S.hs.path = 'UNI'; S.hs.uniPick = d.uni; addLog(`${UNIVS[d.uni].name} 진학을 결정했다.`); return { title: '대학 진학', text: `졸업 후 ${UNIVS[d.uni].name} 야구부에 입학한다. 4년 뒤를 노리자.` }; }
         if (choice === 'INDY') { S.hs.path = 'INDY'; S.hs.indyPick = d.indy; addLog(`${teamInfo(d.indy).name} 입단을 결정했다.`); return { title: '독립리그 행', text: `${S.phase === 'HS' ? '졸업' : '졸업'} 후 ${teamInfo(d.indy).name}에서 뛴다. 성적을 내서 프로의 문을 다시 두드리자.` }; }
         S.hs.path = 'STAY';

@@ -179,6 +179,7 @@ const UI = (() => {
         <div class="kv" style="margin-top:8px"><span>보유 자산</span><b>${Game.won(S.money)}</b></div>
         ${S.injury ? `<div class="kv"><span>부상</span><b style="color:var(--bad)">${S.injury}주 결장</b></div>` : ''}
       </div>
+      ${!Game.amateur() ? ownCard() : ''}
       <div class="card">
         <div class="card-t"><h3>이번 주에 할 일</h3><small>고르면 한 주가 지나요</small></div>
         <div class="tiles">${acts.map((a) => `<button class="tile ${a.disabled ? 'off' : ''}" data-act="${a.id}">${IC[iconOf[a.icon] || a.icon] || IC.star}<b>${a.name}</b><small>${a.disabled || (a.id === 'train' && Game.period().train > 1 ? `효과 ${Game.period().train}배 (${Game.period().name})` : a.sub)}</small></button>`).join('')}</div>
@@ -195,6 +196,13 @@ const UI = (() => {
         <div class="card-t"><h3>최근 소식</h3></div>
         <div class="list">${S.log.slice(0, 6).map((l) => `<div class="li"><div class="tx"><b style="font-size:15px;font-weight:500">${esc(l.t)}</b><small>${l.d}</small></div></div>`).join('')}</div>
       </div>`;
+  }
+  function ownCard() {
+    const S = G();
+    const h = HOUSES.find((x) => x.id === S.house);
+    const c = S.car ? CARS.find((x) => x.id === S.car) : null;
+    return `<div class="card own-card" data-own="1"><div class="card-t"><h3>내 집 · 내 차</h3><small>${S.houses.length - 1 + S.cars.length ? `집 ${S.houses.length}채 · 차 ${S.cars.length}대` : '라이프 탭에서 살 수 있어요'}</small></div>
+      <div class="own-grid"><div class="own-it">${assetPhoto(h.id, h.name)}<b>${h.name}</b></div><div class="own-it">${c ? assetPhoto(c.id, c.name) : '<div class="own-empty">차 없음</div>'}<b>${c ? c.name : '뚜벅이'}</b></div></div></div>`;
   }
   function nextTitle() {
     const S = G();
@@ -497,6 +505,7 @@ const UI = (() => {
     if ((b = t('[data-pitchf]'))) { view.pitchF = b.dataset.pitchf; return render(); }
     if ((b = t('[data-pmode]'))) { view.pitchMode = b.dataset.pmode; return render(); }
     if ((b = t('[data-life]'))) { view.life = b.dataset.life; return render(); }
+    if ((b = t('[data-own]'))) { view.tab = 'life'; view.life = 'asset'; view.asset = 'house'; render(); window.scrollTo(0, 0); return; }
     if ((b = t('[data-asset]'))) { view.asset = b.dataset.asset; return render(); }
     if ((b = t('[data-staff]'))) { const m = Game.toggleStaff(b.dataset.staff); if (m) toast(m); return render(); }
     if ((b = t('[data-fac]'))) { const id = b.dataset.fac; const x = FACILITIES.find((q) => q.id === id); return sheet({ title: `${x.name} 짓기`, body: `${assetPhoto(x.id, x.name)}<p>${Game.won(x.price)}을 들여 지을까요?</p><p class="hint">${x.desc}</p>`, row: true, buttons: [{ label: '취소', cls: 'sub' }, { label: '짓기', onClick: () => { const m = Game.buyFacility(id); if (m) toast(m); render(); } }] }); }
@@ -800,7 +809,8 @@ const UI = (() => {
       case 'undrafted': {
         const it = Game.teamInfo(d.indy);
         const btns = [];
-        if (d.stage === 'HS') btns.push({ label: `대학 진학<small>${UNIVS[d.uni].name} 입학 제안</small>`, onClick: () => done('UNI') });
+        if (d.shingo) btns.push({ label: `육성선수 입단<small>${Game.teamInfo(d.shingo).name} · 연봉 3,000만원, 퓨처스(2군)부터</small>`, onClick: () => done('SHINGO') });
+        if (d.stage === 'HS') btns.push({ label: `대학 진학<small>${UNIVS[d.uni].name} 입학 제안</small>`, cls: d.shingo ? 'sub' : '', onClick: () => done('UNI') });
         if (d.stage === 'UNI2') btns.push({ label: '4학년 드래프트에 다시 도전', onClick: () => done('STAY') });
         else btns.push({ label: `독립리그 입단<small>${it.name} · 성적을 내면 신고선수로 프로 입단</small>`, cls: d.stage === 'HS' ? 'sub' : '', onClick: () => done('INDY') });
         sheet({ title: '지명을 받지 못했어요', body: `<p>${S.year + 1} KBO 신인 드래프트에서 끝내 이름이 불리지 않았어요.</p><p>여기서 끝낼 수는 없어요. 어떻게 할까요?</p>`, buttons: btns });
@@ -954,7 +964,7 @@ const UI = (() => {
     const off = Game.isOffseason();
     sheet({
       title: `${h.name}와 어디 갈까요?`, dismiss: true,
-      body: `<div class="list">${DATE_PLACES.filter((p) => !p.special || Game.relStage(S.rel[h.id].aff, h.id) >= p.stage).map((p) => { const rk = Game.cheating(h.id) ? ` · 들킬 위험 +${Game.dateRiskOf(p.id)}` : ''; const why = p.needCar && !S.car ? '차가 있어야 해요' : p.offseason && !off ? '비시즌에만 가능' : S.money < p.cost ? '돈이 부족해요' : ''; return `<button class="li ${p.special ? 'special' : ''}" data-p="${p.id}" ${why ? 'disabled' : ''}><div class="tx"><b>${p.name}${h.fav === p.id ? ' ♥' : ''}</b><small>${why || (p.special ? `둘만의 밤 · 피로 +${p.fat} · 멘탈 +${p.mental}` : `피로 -${p.cond}`) + (why ? '' : rk)}</small></div><span class="val">${Game.won(p.cost)}</span></button>`; }).join('')}</div><p class="hint">♥ 표시는 ${h.name}이(가) 좋아하는 곳이에요.${Game.cheating(h.id) ? ' 연인 몰래 만나면 의심도가 쌓이고, 높을수록 들킬 확률이 올라가요.' : ''}</p>`,
+      body: `<div class="list">${DATE_PLACES.filter((p) => !p.special || Game.relStage(S.rel[h.id].aff, h.id) >= p.stage).map((p) => { const rk = Game.cheating(h.id) ? ` · 들킬 위험 +${Game.dateRiskOf(p.id)}` : ''; const why = p.needCar && !S.car ? '차가 있어야 해요' : p.needHouse && HOUSES.find((q) => q.id === S.house).tier < p.needHouse ? '아파트 이상 집이 있어야 해요' : p.offseason && !off ? '비시즌에만 가능' : S.money < p.cost ? '돈이 부족해요' : ''; return `<button class="li ${p.special ? 'special' : ''}" data-p="${p.id}" ${why ? 'disabled' : ''}><div class="tx"><b>${p.name}${h.fav === p.id ? ' ♥' : ''}</b><small>${why || (p.special ? `둘만의 밤 · 피로 +${p.fat} · 멘탈 +${p.mental}` : `피로 -${p.cond}`) + (why ? '' : rk)}</small></div><span class="val">${Game.won(p.cost)}</span></button>`; }).join('')}</div><p class="hint">♥ 표시는 ${h.name}이(가) 좋아하는 곳이에요.${Game.cheating(h.id) ? ' 연인 몰래 만나면 의심도가 쌓이고, 높을수록 들킬 확률이 올라가요.' : ''}</p>`,
       buttons: [{ label: '취소', cls: 'sub' }],
       onRender: (b, close) => { b.onclick = (e) => { const x = e.target.closest('[data-p]'); if (!x || x.disabled) return; close(); const place = x.dataset.p; let bonus = 0; chat(h, Game.talkTopics(h.id, 2, place), DATE_PLACES.find((q) => q.id === place).name, (gain) => { bonus = Game.talkFinish(h.id, gain, 'date'); return `분위기 ${bonus >= 3 ? '최고' : bonus >= 1 ? '좋음' : '어색'} · 데이트 호감 보너스 ${bonus >= 0 ? '+' : ''}${bonus}`; }, () => runWeek('date', { hid: h.id, place, bonus })); }; },
     });
@@ -975,7 +985,13 @@ const UI = (() => {
     const tab = view.asset;
     const it = (tab === 'house' ? HOUSES : CARS).find((x) => x.id === id);
     const own = tab === 'house' ? S.houses.includes(id) : S.cars.includes(id);
-    const go = () => { const r = tab === 'house' ? Game.buyHouse(id) : Game.buyCar(id); toast(r.msg); render(); };
+    const go = () => {
+      const r = tab === 'house' ? Game.buyHouse(id) : Game.buyCar(id);
+      render();
+      if (!r.ok || own) return toast(r.msg);
+      const house = tab === 'house';
+      sheet({ title: house ? '입주를 축하해요!' : '새 차 출고!', body: `<div class="own-cele">${assetPhoto(it.id, it.name)}<div class="own-key">${house ? '🔑' : '🚗'}</div></div><h3 class="own-name">${it.name}</h3><p class="muted" style="text-align:center">${house ? `오늘부터 내 집이에요. 회복 +${it.cond} · 멘탈 +${it.mental}` : `오늘부터 내 차예요. 인기 +${it.fame} · 데이트 +${it.date}`}</p>${house && it.tier >= 2 ? '<p class="hint" style="text-align:center">이제 데이트 장소에 \'우리 집 데이트\'가 생겨요.</p>' : ''}`, buttons: [{ label: '확인' }] });
+    };
     if (own) return go();
     sheet({ title: `${it.name} 구매`, body: `${assetPhoto(it.id, it.name)}<p>${Game.won(it.price)}을 쓸까요? 남는 돈은 ${Game.won(S.money - it.price)}이에요.</p>`, row: true, buttons: [{ label: '취소', cls: 'sub' }, { label: '구매', onClick: go }] });
   }
